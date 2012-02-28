@@ -83,8 +83,7 @@ bgzf_min(int x, int y)
     return (x < y) ? x : y;
 }
 
-static
-void
+static void
 report_error(BGZF* fp, const char* message) {
     fp->error = message;
 }

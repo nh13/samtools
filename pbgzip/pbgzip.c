@@ -7,6 +7,11 @@
 #include <errno.h>
 
 #include "../bgzf.h"
+#include "block.h"
+#include "queue.h"
+#include "reader.h"
+#include "consumer.h"
+#include "writer.h"
 #include "util.h"
 #include "pbgzf.h"
 
@@ -91,7 +96,7 @@ main(int argc, char *argv[])
       return 1;
   }
 
-  pbgzf_run(f_src, f_dst, compress, compress_level, queue_size, n_threads);
+  pbgzf_main(f_src, f_dst, compress, compress_level, queue_size, n_threads);
 
   if(!pstdout) unlink(argv[optind]);
 

@@ -5,6 +5,10 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <errno.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 
 #include "../bgzf.h"
 #include "util.h"
@@ -13,27 +17,10 @@
 #include "reader.h"
 #include "writer.h"
 #include "consumer.h"
+#include "pbgzf.h"
 
-typedef struct {
-    pthread_attr_t attr;
-    pthread_t *threads;
-    int32_t n;
-    consumer_t **c;
-} consumers_t;
 
-typedef struct {
-    pthread_attr_t attr;
-    pthread_t thread;
-    reader_t *r;
-} producer_t;
-
-typedef struct {
-    pthread_attr_t attr;
-    pthread_t thread;
-    writer_t *w;
-} outputter_t;
-
-consumers_t*
+static consumers_t*
 consumers_init(int32_t n, queue_t *input, queue_t *output, reader_t *reader, 
                int32_t compress, int32_t compress_level)
 {
@@ -55,7 +42,7 @@ consumers_init(int32_t n, queue_t *input, queue_t *output, reader_t *reader,
   return c;
 }
 
-void
+static void
 consumers_destroy(consumers_t *c)
 {
   int32_t i;
@@ -67,7 +54,7 @@ consumers_destroy(consumers_t *c)
   free(c);
 }
 
-void
+static void
 consumers_run(consumers_t *c)
 {
   int32_t i;
@@ -80,7 +67,7 @@ consumers_run(consumers_t *c)
   }
 }
 
-void
+static void
 consumers_join(consumers_t *c)
 {
   int32_t i;
@@ -95,7 +82,7 @@ consumers_join(consumers_t *c)
   queue_close(c->c[0]->output);
 }
 
-producer_t*
+static producer_t*
 producer_init(reader_t *r)
 {
   producer_t *p;
@@ -109,13 +96,13 @@ producer_init(reader_t *r)
   return p;
 }
 
-void
+static void
 producer_destroy(producer_t *p)
 {
   free(p);
 }
 
-void
+static void
 producer_run(producer_t *p)
 {
   if(0 != pthread_create(&p->thread, &p->attr, reader_run, p->r)) {
@@ -124,7 +111,7 @@ producer_run(producer_t *p)
   }
 }
 
-void
+static void
 producer_join(producer_t *p)
 {
   if(0 != pthread_join(p->thread, NULL)) {
@@ -135,7 +122,7 @@ producer_join(producer_t *p)
   queue_close(p->r->input);
 }
 
-outputter_t*
+static outputter_t*
 outputter_init(writer_t *w)
 {
   outputter_t *o;
@@ -149,13 +136,13 @@ outputter_init(writer_t *w)
   return o;
 }
 
-void
+static void
 outputter_destroy(outputter_t *o)
 {
   free(o);
 }
 
-void
+static void
 outputter_run(outputter_t *o)
 {
   if(0 != pthread_create(&o->thread, &o->attr, writer_run, o->w)) {
@@ -164,7 +151,7 @@ outputter_run(outputter_t *o)
   }
 }
 
-void
+static void
 outputter_join(outputter_t *o)
 {
   if(0 != pthread_join(o->thread, NULL)) {
@@ -173,9 +160,244 @@ outputter_join(outputter_t *o)
   }
 }
 
-void
-pbgzf_run(int f_src, int f_dst, int compress, int compress_level, int queue_size, int n_threads)
+
+static inline
+int
+pbgzf_min(int x, int y)
 {
+      return (x < y) ? x : y;
+}
+
+static void
+pbgzf_run(PBGZF *fp)
+{
+  if(NULL != fp->p) producer_run(fp->p);
+  if(NULL != fp->c) consumers_run(fp->c);
+  if(NULL != fp->o) outputter_run(fp->o);
+}
+
+static void
+pbgzf_signal_and_join(PBGZF *fp)
+{
+  // signal other threads to finish
+  pthread_cond_signal(fp->input->not_full);
+  pthread_cond_signal(fp->input->not_empty);
+  
+  // join
+  if(NULL != fp->p) producer_join(fp->p);
+  if(NULL != fp->c) consumers_join(fp->c);
+  if(NULL != fp->o) outputter_join(fp->o);
+}
+
+  
+static PBGZF*
+pbgzf_init(int fd, const char* __restrict mode)
+{
+  int i, compress_level = -1, read_mode;
+  PBGZF *fp = NULL;
+
+  // set compress_level
+  for (i = 0; mode[i]; ++i)
+    if (mode[i] >= '0' && mode[i] <= '9') break;
+  if (mode[i]) compress_level = (int)mode[i] - '0';
+  if (strchr(mode, 'u')) compress_level = 0;
+
+  // set read/write
+  if (strchr(mode, 'r') || strchr(mode, 'R')) { /* The reading mode is preferred. */
+      read_mode = 1;
+  } else if (strchr(mode, 'w') || strchr(mode, 'W')) {
+      read_mode = 0;
+  }
+  else {
+      return NULL;
+  }
+  
+  fp = calloc(1, sizeof(PBGZF));
+
+  // queues
+  fp->read_mode = read_mode;
+  fp->num_threads = detect_cpus(); // TODO: do we want to use all the threads?
+  fp->queue_size = PBGZF_QUEUE_SIZE;
+  fp->input = queue_init(fp->queue_size, 0);
+  fp->output = queue_init(fp->queue_size, 1);
+
+  if(0 == read_mode) { // write to a compressed file
+      fp->r = NULL; // do not read
+      fp->p = NULL; // do not produce data
+      fp->c = consumers_init(fp->num_threads, fp->input, fp->output, fp->r, 1, compress_level); // deflate/compress
+      fp->w = writer_init(fd, fp->output, 1, compress_level); // write data
+      fp->o = outputter_init(fp->w);
+  }
+  else { // read from a compressed file
+      fp->r = reader_init(fd, fp->input, 0); // read the compressed file
+      fp->p = producer_init(fp->r);
+      fp->c = consumers_init(fp->num_threads, fp->input, fp->output, fp->r, 0, compress_level); // inflate
+      fp->w = NULL;
+      fp->o = NULL; // do not write
+  }
+
+  pbgzf_run(fp);
+
+  return fp;
+}
+
+PBGZF* pbgzf_fdopen(int fd, const char* __restrict mode)
+{
+  return pbgzf_init(fd, mode);
+}
+
+PBGZF* pbgzf_open(const char* path, const char* __restrict mode)
+{
+  int fd;
+  if (strchr(mode, 'r') || strchr(mode, 'R')) { /* The reading mode is preferred. */
+#ifdef _WIN32
+      fd = open(path, O_RDONLY | O_BINARY); 
+#else 
+      fd = open(path, O_RDONLY);
+#endif
+  }
+  else { // read from a compressed file
+#ifdef _WIN32
+      fd = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_BINARY); 
+#else
+      fd = open(path, O_WRONLY | O_CREAT | O_TRUNC); 
+#endif
+  }
+  return pbgzf_fdopen(fd, mode);
+}
+
+int 
+pbgzf_close(PBGZF* fp)
+{
+  pbgzf_signal_and_join(fp);
+
+  // destroy
+  if(NULL != fp->c) consumers_destroy(fp->c);
+  if(NULL != fp->p) producer_destroy(fp->p);
+  if(NULL != fp->o) outputter_destroy(fp->o);
+  if(NULL != fp->input) queue_destroy(fp->input);
+  if(NULL != fp->output) queue_destroy(fp->output);
+  if(NULL != fp->r) reader_destroy(fp->r);
+  if(NULL != fp->w) writer_destroy(fp->w);
+
+  return 0;
+}
+
+int 
+pbgzf_read(PBGZF* fp, void* data, int length)
+{
+  if(length <= 0) {
+      return 0;
+  }
+  if(fp->read_mode != 1) {
+      fprintf(stderr, "file not open for reading\n");
+      return -1;
+  }
+
+  int bytes_read = 0;
+  bgzf_byte_t* output = data;
+  while(bytes_read < length) {
+      int copy_length, available;
+
+      available = (NULL == fp->block) ? 0 : (fp->block->block_length - fp->block->block_offset);
+      if(0 == available) {
+          if(NULL != fp->block) block_destroy(fp->block);
+          fp->block = queue_get(fp->output, 1);
+          if(1 == fp->output->eof) { // TODO: does this need to be synced?
+              break;
+          }
+          else {
+              fprintf(stderr, "pbgzf queue_get: bug encountered\n");
+              exit(1);
+          }
+      }
+      available = (NULL == fp->block) ? 0 : (fp->block->block_length - fp->block->block_offset);
+      if(available <= 0) {
+          break;
+      }
+
+      bgzf_byte_t *buffer;
+      copy_length = pbgzf_min(length-bytes_read, available);
+      buffer = (bgzf_byte_t*)fp->block->buffer;
+      memcpy(output, buffer + fp->block->block_offset, copy_length);
+      fp->block->block_offset += copy_length;
+      output += copy_length;
+      bytes_read += copy_length;
+  }
+
+  return bytes_read;
+}
+
+int 
+pbgzf_write(PBGZF* fp, const void* data, int length)
+{
+  const bgzf_byte_t *input = data;
+  int block_length, bytes_written;
+
+  if(fp->read_mode != 0) {
+      fprintf(stderr, "file not open for writing\n");
+      return -1;
+  }
+
+  if(NULL == fp->block) {
+      fp->block = block_init();
+  }
+
+  input = data;
+  block_length = fp->block->block_length;
+  bytes_written = 0;
+  while (bytes_written < length) {
+      int copy_length = pbgzf_min(block_length - fp->block->block_offset, length - bytes_written);
+      bgzf_byte_t* buffer = fp->block->buffer;
+      memcpy(buffer + fp->block->block_offset, input, copy_length);
+      fp->block->block_offset += copy_length;
+      input += copy_length;
+      bytes_written += copy_length;
+      if (fp->block->block_offset == block_length) {
+          // add to the queue
+          if(!queue_add(fp->input, fp->block, 1)) {
+              fprintf(stderr, "reader queue_add: bug encountered\n");
+              exit(1);
+          }
+          fp->block = NULL;
+          fp->block = block_init();
+      }
+  }
+  return bytes_written;
+}
+
+int64_t 
+pbgzf_seek(PBGZF* fp, int64_t pos, int where)
+{
+  if(fp->read_mode == 0) {
+      fprintf(stderr, "file not open for read\n");
+      return -1;
+  }
+  if (where != SEEK_SET) {
+      fprintf(stderr, "unimplemented seek option\n");
+      return -1;
+  }
+
+  // signal and join
+  pbgzf_signal_and_join(fp);
+
+  // seek
+  pos = bgzf_seek(fp->r->fp_bgzf, pos, where);
+
+  // reset the queues
+  queue_reset(fp->input);
+  queue_reset(fp->output);
+
+  // restart threads
+  pbgzf_run(fp);
+
+  return pos;
+}
+
+void
+pbgzf_main(int f_src, int f_dst, int compress, int compress_level, int queue_size, int n_threads)
+{
+  // NB: this gives us greater control over queue size and the like
   queue_t *input = NULL;
   queue_t *output = NULL;
   reader_t *r = NULL;

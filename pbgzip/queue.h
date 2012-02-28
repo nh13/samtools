@@ -31,5 +31,7 @@ queue_close(queue_t *q);
 void
 queue_destroy(queue_t *q);
 
+void
+queue_reset(queue_t *q);
 
 #endif

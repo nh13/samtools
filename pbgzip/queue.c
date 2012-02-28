@@ -134,6 +134,23 @@ queue_close(queue_t *q)
 }
 
 void
+queue_reset(queue_t *q)
+{
+  int32_t i;
+  safe_mutex_lock(q->mut);
+  for(i=0;i<q->mem;i++) {
+      if(NULL != q->queue[i]) {
+          block_destroy(q->queue[i]);
+          q->queue[i] = NULL;
+      }
+  }
+  q->head = q->tail = q->n = 0;
+  q->id = 0;
+  q->eof = 0;
+  safe_mutex_unlock(q->mut);
+}
+
+void
 queue_destroy(queue_t *q)
 {
   int32_t i;
