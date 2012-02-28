@@ -51,26 +51,6 @@ extern off_t ftello(FILE *stream);
 extern int fseeko(FILE *stream, off_t offset, int whence);
 #endif
 
-typedef int8_t bgzf_byte_t;
-
-static const int DEFAULT_BLOCK_SIZE = 64 * 1024;
-static const int MAX_BLOCK_SIZE = 64 * 1024;
-
-static const int BLOCK_HEADER_LENGTH = 18;
-static const int BLOCK_FOOTER_LENGTH = 8;
-
-static const int GZIP_ID1 = 31;
-static const int GZIP_ID2 = 139;
-static const int CM_DEFLATE = 8;
-static const int FLG_FEXTRA = 4;
-static const int OS_UNKNOWN = 255;
-static const int BGZF_ID1 = 66; // 'B'
-static const int BGZF_ID2 = 67; // 'C'
-static const int BGZF_LEN = 2;
-static const int BGZF_XLEN = 6; // BGZF_LEN+4
-
-static const int GZIP_WINDOW_BITS = -15; // no zlib header
-static const int Z_DEFAULT_MEM_LEVEL = 8;
 
 
 inline
@@ -396,9 +376,8 @@ inflate_block(BGZF* fp, int block_length)
     return zs.total_out;
 }
 
-static
 int
-check_header(const bgzf_byte_t* header)
+bgzf_check_header(const bgzf_byte_t* header)
 {
     return (header[0] == GZIP_ID1 &&
             header[1] == (bgzf_byte_t) GZIP_ID2 &&
@@ -490,7 +469,7 @@ bgzf_read_block(BGZF* fp)
         report_error(fp, "read failed");
         return -1;
     }
-    if (!check_header(header)) {
+    if (!bgzf_check_header(header)) {
         report_error(fp, "invalid block header");
         return -1;
     }
