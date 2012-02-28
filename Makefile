@@ -12,7 +12,7 @@ AOBJS=		bam_tview.o bam_plcmd.o sam_view.o \
 			cut_target.o phase.o bam2depth.o bam_qa.o padding.o
 PROG=		samtools
 INCLUDES=	-I.
-SUBDIRS=	. bcftools misc
+SUBDIRS=	. bcftools misc 
 LIBPATH=
 LIBCURSES=	-lcurses # -lXCurses
 
