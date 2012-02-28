@@ -257,7 +257,7 @@ main(int argc, char *argv[])
   output = queue_init(100, 1);
 
   r = reader_init(argv[optind], input);
-  c = consumers_init(1, input, output, r);
+  c = consumers_init(n_threads, input, output, r);
   w = writer_init(f_dst, output);
   p = producer_init(r);
   o = outputter_init(w);
