@@ -5,17 +5,26 @@
 #include <pthread.h>
 
 #include "../bgzf.h"
+#include "util.h"
 #include "block.h"
 #include "queue.h"
 #include "reader.h"
 
+static const int WINDOW_SIZE = MAX_BLOCK_SIZE;
+
 reader_t*
-reader_init(const char *path, queue_t *input)
+reader_init(int fd, queue_t *input, uint8_t compress)
 {
   reader_t *r= calloc(1, sizeof(reader_t));
 
-  r->fp = bgzf_open(path, "r");
+  if(0 == compress) {
+      r->fp_bgzf = bgzf_fdopen(fd, "r");
+  }
+  else {
+      r->fd_file = fd;
+  }
   r->input = input;
+  r->compress = compress;
 
   return r;
 }
@@ -88,9 +97,17 @@ reader_run(void *arg)
   while(!r->is_done) {
       // read block
       b = block_init(); // TODO: memory pool for blocks
-      if(reader_read_block(r->fp, b) < 0) {
-          fprintf(stderr, "reader reader_read_block: bug encountered");
-          exit(1);
+      if(0 == r->compress) {
+          if(reader_read_block(r->fp_bgzf, b) < 0) {
+              fprintf(stderr, "reader reader_read_block: bug encountered");
+              exit(1);
+          }
+      }
+      else { 
+          if((b->block_length = read(r->fd_file, b->buffer, WINDOW_SIZE)) < 0) {
+              fprintf(stderr, "reader read: bug encountered");
+              exit(1);
+          }
       }
       if(NULL == b || 0 == b->block_length) {
           block_destroy(b);
@@ -120,9 +137,11 @@ void
 reader_destroy(reader_t *r)
 {
   if(NULL == r) return;
-  if(bgzf_close(r->fp) < 0) {
-      fprintf(stderr, "reader bgzf_close: bug encountered");
-      exit(1);
+  if(0 == r->compress) {
+      if(bgzf_close(r->fp_bgzf) < 0) {
+          fprintf(stderr, "reader bgzf_close: bug encountered");
+          exit(1);
+      }
   }
   free(r);
 }

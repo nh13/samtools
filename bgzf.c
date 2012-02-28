@@ -51,8 +51,6 @@ extern off_t ftello(FILE *stream);
 extern int fseeko(FILE *stream, off_t offset, int whence);
 #endif
 
-
-
 inline
 void
 packInt16(uint8_t* buffer, uint16_t value)
@@ -152,8 +150,7 @@ open_read(int fd)
     return fp;
 }
 
-static
-BGZF*
+static BGZF*
 open_write(int fd, int compress_level) // compress_level==-1 for the default level
 {
     FILE* file = fdopen(fd, "w");
@@ -547,7 +544,7 @@ int bgzf_flush(BGZF* fp)
 {
     while (fp->block_offset > 0) {
         int count, block_length;
-		block_length = deflate_block(fp, fp->block_offset);
+        block_length = deflate_block(fp, fp->block_offset);
         if (block_length < 0) return -1;
 #ifdef _USE_KNETFILE
         count = fwrite(fp->compressed_block, 1, block_length, fp->x.fpw);

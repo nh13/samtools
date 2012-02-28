@@ -5,16 +5,19 @@ typedef struct {
     queue_t *input;
     queue_t *output;
     reader_t *reader;
-    
-    int16_t cid;
     uint8_t *buffer;
     int8_t is_done;
+    int8_t compress;
+    int32_t compress_level;
+    int16_t cid;
 } consumer_t;
 
 consumer_t*
 consumer_init(queue_t *input,
               queue_t *output,
               reader_t *reader,
+              int8_t compress,
+              int32_t compress_level,
               int32_t cid);
 
 void*

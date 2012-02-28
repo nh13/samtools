@@ -34,7 +34,8 @@ typedef struct {
 } outputter_t;
 
 consumers_t*
-consumers_init(int32_t n, queue_t *input, queue_t *output, reader_t *reader)
+consumers_init(int32_t n, queue_t *input, queue_t *output, reader_t *reader, 
+               int32_t compress, int32_t compress_level)
 {
   consumers_t *c = NULL;
   int32_t i;
@@ -45,7 +46,7 @@ consumers_init(int32_t n, queue_t *input, queue_t *output, reader_t *reader)
   c->c = calloc(n, sizeof(consumer_t*));
 
   for(i=0;i<n;i++) {
-      c->c[i] = consumer_init(input, output, reader, i);
+      c->c[i] = consumer_init(input, output, reader, compress, compress_level, i);
   }
 
   pthread_attr_init(&c->attr);
@@ -173,7 +174,7 @@ outputter_join(outputter_t *o)
 }
 
 void
-pbgzf_run(const char *fn_in, int f_dst, int compress, int queue_size, int n_threads)
+pbgzf_run(int f_src, int f_dst, int compress, int compress_level, int queue_size, int n_threads)
 {
   queue_t *input = NULL;
   queue_t *output = NULL;
@@ -186,9 +187,9 @@ pbgzf_run(const char *fn_in, int f_dst, int compress, int queue_size, int n_thre
   input = queue_init(queue_size, 0);
   output = queue_init(queue_size, 1);
 
-  r = reader_init(fn_in, input);
-  c = consumers_init(n_threads, input, output, r);
-  w = writer_init(f_dst, output);
+  r = reader_init(f_src, input, compress);
+  w = writer_init(f_dst, output, compress, compress_level);
+  c = consumers_init(n_threads, input, output, r, compress, compress_level);
   p = producer_init(r);
   o = outputter_init(w);
 

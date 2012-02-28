@@ -39,11 +39,12 @@ pbgzip_main_usage()
 {
   fprintf(stderr, "\n");
   fprintf(stderr, "Usage:   pbgzip [options] [file] ...\n\n");
-  fprintf(stderr, "Options: -c      write on standard output, keep original files unchanged\n");
-  fprintf(stderr, "         -d      decompress\n");
-  fprintf(stderr, "         -f      overwrite files without asking\n");
-  fprintf(stderr, "         -n      number of threads [%d]\n", detect_cpus());
-  fprintf(stderr, "         -h      give this help\n");
+  fprintf(stderr, "Options: -c        write on standard output, keep original files unchanged\n");
+  fprintf(stderr, "         -d        decompress\n");
+  fprintf(stderr, "         -f        overwrite files without asking\n");
+  fprintf(stderr, "         -n        number of threads [%d]\n", detect_cpus());
+  fprintf(stderr, "         -1 .. -9  the compression level [%d]\n", Z_DEFAULT_COMPRESSION);
+  fprintf(stderr, "         -h        give this help\n");
   fprintf(stderr, "\n");
   return 1;
 }
@@ -52,11 +53,15 @@ pbgzip_main_usage()
 int
 main(int argc, char *argv[])
 {
-  int opt, f_dst;
-  int32_t compress, pstdout, is_forced, queue_size, n_threads;
+  int opt, f_src, f_dst;
+  int32_t compress, compress_level, pstdout, is_forced, queue_size, n_threads;
 
-  compress = 1; pstdout = 0; is_forced = 0; queue_size = 1000; n_threads = detect_cpus();
-  while((opt = getopt(argc, argv, "cdhfn:q:")) >= 0){
+  compress = 1; compress_level = -1; pstdout = 0; is_forced = 0; queue_size = 1000; n_threads = detect_cpus();
+  while((opt = getopt(argc, argv, "cdhfn:q:0123456789")) >= 0){
+      if('0' <= opt && opt <= '9') {
+          compress_level = opt - '0'; 
+          continue;
+      }
       switch(opt){
         case 'd': compress = 0; break;
         case 'c': pstdout = 1; break;
@@ -71,11 +76,6 @@ main(int argc, char *argv[])
 
   if(argc <= 1) return pbgzip_main_usage();
 
-  if(1 == compress) {
-      fprintf(stderr, "compression is not currently supported\n");
-      return 1;
-  }
-
   if(pstdout) {
       f_dst = fileno(stdout);
   }
@@ -86,8 +86,14 @@ main(int argc, char *argv[])
       free(name);
   }
 
-  pbgzf_run(argv[optind], f_dst, compress, queue_size, n_threads);
+  if ((f_src = open(argv[optind], O_RDONLY)) < 0) {
+      fprintf(stderr, "[pbgzip] %s: %s\n", strerror(errno), argv[optind]);
+      return 1;
+  }
 
-  if(!pstdout) unlink(argv[1]);
+  pbgzf_run(f_src, f_dst, compress, compress_level, queue_size, n_threads);
+
+  if(!pstdout) unlink(argv[optind]);
+
   return 0;
 }
