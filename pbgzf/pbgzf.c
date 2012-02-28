@@ -172,47 +172,8 @@ outputter_join(outputter_t *o)
   }
 }
 
-int 
-write_open(const char *fn, int is_forced)
-{
-  int fd = -1;
-  char c;
-  if (!is_forced) {
-      if ((fd = open(fn, O_WRONLY | O_CREAT | O_TRUNC | O_EXCL, 0666)) < 0 && errno == EEXIST) {
-          fprintf(stderr, "[bgzip] %s already exists; do you wish to overwrite (y or n)? ", fn);
-          scanf("%c", &c);
-          if (c != 'Y' && c != 'y') {
-              fprintf(stderr, "[bgzip] not overwritten\n");
-              exit(1);
-          }
-      }
-  }
-  if (fd < 0) {
-      if ((fd = open(fn, O_WRONLY | O_CREAT | O_TRUNC, 0666)) < 0) {
-          fprintf(stderr, "[bgzip] %s: Fail to write\n", fn);
-          exit(1);
-      }
-  }
-  return fd;
-}
-
-static int 
-pbgzip_main_usage()
-{
-  fprintf(stderr, "\n");
-  fprintf(stderr, "Usage:   pbgzip [options] [file] ...\n\n");
-  fprintf(stderr, "Options: -c      write on standard output, keep original files unchanged\n");
-  fprintf(stderr, "         -d      decompress\n");
-  fprintf(stderr, "         -f      overwrite files without asking\n");
-  fprintf(stderr, "         -n      number of threads [%d]\n", detect_cpus());
-  fprintf(stderr, "         -h      give this help\n");
-  fprintf(stderr, "\n");
-  return 1;
-}
-
-
-int
-main(int argc, char *argv[])
+void
+pbgzf_run(const char *fn_in, int f_dst, int compress, int queue_size, int n_threads)
 {
   queue_t *input = NULL;
   queue_t *output = NULL;
@@ -222,44 +183,10 @@ main(int argc, char *argv[])
   producer_t *p = NULL;
   outputter_t *o = NULL;
 
-  int opt, f_dst;
-  int32_t compress, pstdout, is_forced, queue_size, n_threads;
-
-  compress = 1; pstdout = 0; is_forced = 0; queue_size = 1000; n_threads = detect_cpus();
-  while((opt = getopt(argc, argv, "cdhfn:q:")) >= 0){
-      switch(opt){
-        case 'd': compress = 0; break;
-        case 'c': pstdout = 1; break;
-        case 'f': is_forced = 1; break;
-        case 'q': queue_size = atoi(optarg); break;
-        case 'n': n_threads = atoi(optarg); break;
-        case 'h': 
-        default:
-                  return pbgzip_main_usage();
-      }
-  }
-
-  if(argc <= 1) return pbgzip_main_usage();
-
-  if(1 == compress) {
-      fprintf(stderr, "compression is not currently supported\n");
-      return 1;
-  }
-
-  if(pstdout) {
-      f_dst = fileno(stdout);
-  }
-  else {
-      char *name = strdup(argv[optind]);
-      name[strlen(name) - 3] = '\0';
-      f_dst = write_open(name, is_forced);
-      free(name);
-  }
-
   input = queue_init(queue_size, 0);
   output = queue_init(queue_size, 1);
 
-  r = reader_init(argv[optind], input);
+  r = reader_init(fn_in, input);
   c = consumers_init(n_threads, input, output, r);
   w = writer_init(f_dst, output);
   p = producer_init(r);
@@ -281,7 +208,4 @@ main(int argc, char *argv[])
   queue_destroy(output);
   reader_destroy(r);
   writer_destroy(w);
-
-  if(!pstdout) unlink(argv[1]);
-  return 0;
 }
