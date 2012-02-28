@@ -45,7 +45,7 @@ consumers_init(int32_t n, queue_t *input, queue_t *output, reader_t *reader)
   c->c = calloc(n, sizeof(consumer_t*));
 
   for(i=0;i<n;i++) {
-      c->c[i] = consumer_init(input, output, reader);
+      c->c[i] = consumer_init(input, output, reader, i);
   }
 
   pthread_attr_init(&c->attr);
@@ -223,16 +223,19 @@ main(int argc, char *argv[])
   outputter_t *o = NULL;
 
   int opt, f_dst;
-  int32_t compress, pstdout, is_forced, n_threads;
+  int32_t compress, pstdout, is_forced, queue_size, n_threads;
 
-  compress = 1; pstdout = 0; is_forced = 0; n_threads = detect_cpus();
-  while((opt = getopt(argc, argv, "cdhfn:")) >= 0){
+  compress = 1; pstdout = 0; is_forced = 0; queue_size = 1000; n_threads = detect_cpus();
+  while((opt = getopt(argc, argv, "cdhfn:q:")) >= 0){
       switch(opt){
-        case 'h': return pbgzip_main_usage();
         case 'd': compress = 0; break;
         case 'c': pstdout = 1; break;
         case 'f': is_forced = 1; break;
+        case 'q': queue_size = atoi(optarg); break;
         case 'n': n_threads = atoi(optarg); break;
+        case 'h': 
+        default:
+                  return pbgzip_main_usage();
       }
   }
 
@@ -253,8 +256,8 @@ main(int argc, char *argv[])
       free(name);
   }
 
-  input = queue_init(100, 0);
-  output = queue_init(100, 1);
+  input = queue_init(queue_size, 0);
+  output = queue_init(queue_size, 1);
 
   r = reader_init(argv[optind], input);
   c = consumers_init(n_threads, input, output, r);

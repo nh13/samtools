@@ -58,9 +58,10 @@ writer_run(void *arg)
       n++;
   }
 
+  w->is_done = 1;
   //fprintf(stderr, "writer written %llu blocks\n", n);
 
-  w->is_done = 1;
+  // no need to signal, no one depends on me :(
 
   return arg;
 }

@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <zlib.h>
+#include <pthread.h>
 
 #include "../bgzf.h"
 #include "block.h"
@@ -13,13 +14,15 @@
 consumer_t*
 consumer_init(queue_t *input,
               queue_t *output,
-              reader_t *reader)
+              reader_t *reader,
+              int32_t cid)
 {
   consumer_t *c = calloc(1, sizeof(consumer_t));
 
   c->input = input;
   c->output = output;
   c->reader = reader;
+  c->cid = cid;
 
   c->buffer = malloc(sizeof(uint8_t)*MAX_BLOCK_SIZE);
 
@@ -98,8 +101,13 @@ consumer_run(void *arg)
   }
 
   c->is_done = 1;
+  //fprintf(stderr, "Consumer #%d processed %llu blocks\n", c->cid, n);
 
-  //fprintf(stderr, "Consumer processed %llu blocks\n", n);
+  // signal other threads
+  pthread_cond_signal(c->input->not_full);
+  pthread_cond_signal(c->input->not_empty);
+  pthread_cond_signal(c->output->not_full);
+  pthread_cond_signal(c->output->not_empty);
 
   return arg;
 }

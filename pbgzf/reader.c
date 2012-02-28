@@ -106,9 +106,12 @@ reader_run(void *arg)
       n++;
   }
 
+  r->is_done = 1;
   //fprintf(stderr, "reader read %llu blocks\n", n);
 
-  r->is_done = 1;
+  // signal other threads
+  pthread_cond_signal(r->input->not_full);
+  pthread_cond_signal(r->input->not_empty);
 
   return arg;
 }

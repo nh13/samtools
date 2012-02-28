@@ -19,6 +19,7 @@ queue_init(int32_t capacity, int8_t ordered)
   q->mut = calloc(1, sizeof(pthread_mutex_t));
   q->not_full = calloc(1, sizeof(pthread_cond_t));
   q->not_empty = calloc(1, sizeof(pthread_cond_t));
+  q->eof = 0;
     
   if(0 != pthread_mutex_init(q->mut, NULL)) {
       fprintf(stderr, "Could not create mutex");
@@ -41,25 +42,27 @@ queue_add(queue_t *q, block_t *b, int8_t wait)
 {
   safe_mutex_lock(q->mut);
   while(q->n == q->mem) {
-      if(wait && !q->eof) {
+      if(wait && 0 == q->eof) {
           if(0 != pthread_cond_wait(q->not_full, q->mut)) {
               fprintf(stderr, "Could not condition wait");
               exit(1);
           }
       }
       else {
+          safe_mutex_unlock(q->mut);
           return 0;
       }
   }
   if(1 == q->ordered) {
       while(q->id - q->n + q->mem <= b->id) {
-          if(wait && !q->eof) {
+          if(wait && 0 == q->eof) {
               if(0 != pthread_cond_wait(q->not_full, q->mut)) {
                   fprintf(stderr, "Could not condition wait");
                   exit(1);
               }
           }
           else {
+              safe_mutex_unlock(q->mut);
               return 0;
           }
       }
@@ -83,33 +86,34 @@ queue_get(queue_t *q, int8_t wait)
   block_t *b = NULL;
   safe_mutex_lock(q->mut);
   while(0 == q->n) {
-      if(wait && !q->eof) {
+      if(wait && 0 == q->eof) {
           if(0 != pthread_cond_wait(q->not_empty, q->mut)) {
               fprintf(stderr, "Could not condition wait");
               exit(1);
           }
       }
       else {
+          safe_mutex_unlock(q->mut);
           return NULL;
       }
   }
   b = q->queue[q->head];
   if(q->ordered) {
       while(NULL == b) {
-          if(wait && !q->eof) {
+          if(wait && 0 == q->eof) {
               if(0 != pthread_cond_wait(q->not_empty, q->mut)) {
                   fprintf(stderr, "Could not condition wait");
                   exit(1);
               }
           }
           else {
+              safe_mutex_unlock(q->mut);
               return NULL;
           }
           b = q->queue[q->head];
       }
   }
-  q->queue[q->head] = NULL;
-  q->head++;
+  q->queue[q->head++] = NULL;
   if(q->head == q->mem) q->head = 0;
   if(q->ordered) q->id++;
   q->n--;
@@ -121,7 +125,7 @@ queue_get(queue_t *q, int8_t wait)
 void
 queue_close(queue_t *q)
 {
-  if(q->eof) return;
+  if(1 == q->eof) return;
   safe_mutex_lock(q->mut);
   q->eof = 1;
   pthread_cond_broadcast(q->not_full);
