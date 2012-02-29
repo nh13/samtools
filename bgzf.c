@@ -221,19 +221,22 @@ bgzf_open(const char* __restrict path, const char* __restrict mode)
 BGZF*
 bgzf_fdopen(int fd, const char * __restrict mode)
 {
-	if (fd == -1) return 0;
+    BGZF* fp = NULL;
+    if (fd == -1) return 0;
     if (mode[0] == 'r' || mode[0] == 'R') {
-        return open_read(fd);
+        fp = open_read(fd);
     } else if (mode[0] == 'w' || mode[0] == 'W') {
 		int i, compress_level = -1;
 		for (i = 0; mode[i]; ++i)
 			if (mode[i] >= '0' && mode[i] <= '9') break;
 		if (mode[i]) compress_level = (int)mode[i] - '0';
 		if (strchr(mode, 'u')) compress_level = 0;
-        return open_write(fd, compress_level);
+        fp = open_write(fd, compress_level);
     } else {
         return NULL;
     }
+    if (fp != NULL) fp->owned_file = 1;
+    return fp;
 }
 
 static
