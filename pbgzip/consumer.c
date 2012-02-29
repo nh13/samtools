@@ -272,6 +272,8 @@ consumer_run(void *arg)
   }
 
   c->is_done = 1;
+  c->input->num_getters--;
+  c->output->num_adders--;
   //fprintf(stderr, "Consumer #%d processed %llu blocks\n", c->cid, n);
 
   // signal other threads

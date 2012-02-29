@@ -74,13 +74,15 @@ reader_read_block(BGZF* fp, block_t *b)
   /*
   count = inflate_block(fp, block_length);
   if (count < 0) return -1;
+  */
   if (fp->block_length != 0) {
       // Do not reset offset if this read follows a seek.
       fp->block_offset = 0;
   }
-  */
   fp->block_address = block_address;
+  b->block_address = block_address;
   /*
+   // TODO: in the consumer, with a mutex
   fp->block_length = count;
   cache_block(fp, size);
   */
@@ -154,9 +156,11 @@ reader_run(void *arg)
           n++;
       }
   }
+  
+  //fprintf(stderr, "reader read %llu blocks\n", n);
 
   r->is_done = 1;
-  //fprintf(stderr, "reader read %llu blocks\n", n);
+  r->input->num_adders--;
 
   // signal other threads
   pthread_cond_signal(r->input->not_full);

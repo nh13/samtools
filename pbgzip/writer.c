@@ -36,7 +36,8 @@ writer_init(int fd, queue_t *output, uint8_t compress, int32_t compress_level, b
   }
   w->output = output;
   w->compress = compress;
-  w->pool = pool;
+  w->pool_fp= pool;
+  w->pool_local = block_pool_init2(WRITER_BLOCK_POOL_NUM);
 
   return w;
 }
@@ -71,15 +72,12 @@ writer_run(void *arg)
   writer_t *w = (writer_t*)arg;
   block_t *b = NULL;
   uint64_t n = 0;
-  block_pool_t *pool = NULL;
-
-  pool = block_pool_init2(WRITER_BLOCK_POOL_NUM);
 
   while(!w->is_done) {
-      while(pool->n < pool->m) { // more to read from the output queue
-          b = queue_get(w->output, (0 == pool->n) ? 1 : 0);
+      while(w->pool_local->n < w->pool_local->m) { // more to read from the output queue
+          b = queue_get(w->output, (0 == w->pool_local->n) ? 1 : 0);
           if(NULL == b) {
-              if(0 == pool->n && 0 == w->output->eof) {
+              if(0 == w->pool_local->n && 0 == w->output->eof) {
                   fprintf(stderr, "writer queue_get: bug encountered\n");
                   exit(1);
               }
@@ -87,19 +85,19 @@ writer_run(void *arg)
                   break;
               }
           }
-          if(0 == block_pool_add(pool, b)) {
+          if(0 == block_pool_add(w->pool_local, b)) {
               fprintf(stderr, "writer block_pool_add: bug encountered\n");
               exit(1);
           }
           b = NULL;
       }
 
-      if(0 == pool->n && 1 == w->output->eof) { // TODO: does this need to be synced?
+      if(0 == w->pool_local->n && 1 == w->output->eof) { // TODO: does this need to be synced?
           break;
       }
 
-      while(0 < pool->n) { // write all the blocks
-          b = block_pool_get(pool);
+      while(0 < w->pool_local->n) { // write all the blocks
+          b = block_pool_get(w->pool_local);
           if(NULL == b) {
               fprintf(stderr, "writer block_pool_get: bug encountered\n");
               exit(1);
@@ -116,7 +114,7 @@ writer_run(void *arg)
                   exit(1);
               }
           }
-          if(0 == block_pool_add(w->pool, b)) {
+          if(0 == block_pool_add(w->pool_fp, b)) {
               fprintf(stderr, "writer block_pool_add: bug encountered\n");
               exit(1);
           }
@@ -127,8 +125,8 @@ writer_run(void *arg)
   w->is_done = 1;
   //fprintf(stderr, "writer written %llu blocks\n", n);
 
+  w->output->num_getters--;
   // no need to signal, no one depends on me :(
-  block_pool_destroy(pool);
 
   return arg;
 }
@@ -150,5 +148,6 @@ writer_destroy(writer_t *w)
       }
       // TODO
   }
+  block_pool_destroy(w->pool_local);
   free(w);
 }

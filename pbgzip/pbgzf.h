@@ -36,8 +36,10 @@ typedef struct {
     char open_mode;
     int32_t queue_size;
     int32_t num_threads;
-    int32_t block_offset; // for pbgzf_try_flush
+    int32_t block_offset; // for pbgzf_flush_tr
+    int64_t block_address; // for pbgzf_flush_tr
     int32_t eof_ok; // for pbgzf_check_EOF
+    int32_t eof;
 
     queue_t *input;
     queue_t *output;
@@ -99,8 +101,7 @@ int pbgzf_write(PBGZF* fp, const void* data, int length);
  * Return value is non-negative on success.
  * Returns -1 on error.
  */
-// TODO
-#define pbgzf_tell(fp) ('w' == fp->open_mode) ? (bgzf_tell(fp->w->fp_bgzf)) : (bgzf_tell(fp->r->fp_bgzf)) 
+int64_t pbgzf_tell(PBGZF *fp);
 
 /*
  * Set the file to read from the location specified by pos, which must

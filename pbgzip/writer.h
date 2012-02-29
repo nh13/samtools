@@ -8,7 +8,8 @@ typedef struct {
     uint8_t compress;
     uint8_t is_done;
     uint8_t is_closed;
-    block_pool_t *pool;
+    block_pool_t *pool_fp;
+    block_pool_t *pool_local;
 } writer_t;
 
 #define WRITER_BLOCK_POOL_NUM 1000

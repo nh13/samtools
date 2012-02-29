@@ -224,11 +224,11 @@ pbgzf_init(int fd, const char* __restrict mode)
 
   // queues
   fp->open_mode = open_mode;
-  fp->num_threads = detect_cpus(); // TODO: do we want to use all the threads?
-  //fp->num_threads = 1;
+  //fp->num_threads = detect_cpus(); // TODO: do we want to use all the threads?
+  fp->num_threads = 1;
   fp->queue_size = PBGZF_QUEUE_SIZE;
-  fp->input = queue_init(fp->queue_size, 0);
-  fp->output = queue_init(fp->queue_size, 1);
+  fp->input = queue_init(fp->queue_size, 0, 1, fp->num_threads);
+  fp->output = queue_init(fp->queue_size, 1, fp->num_threads, 1);
   
   fp->pool = block_pool_init(PBGZF_BLOCKS_POOL_NUM);
 
@@ -316,6 +316,7 @@ pbgzf_read(PBGZF* fp, void* data, int length)
       fprintf(stderr, "file not open for reading\n");
       return -1;
   }
+  if(fp->eof == 1) return 0;
 
   int bytes_read = 0;
   bgzf_byte_t* output = data;
@@ -340,6 +341,29 @@ pbgzf_read(PBGZF* fp, void* data, int length)
       output += copy_length;
       bytes_read += copy_length;
   }
+  // Try to get a new block and reset addresss/offset
+  if (NULL == fp->block || fp->block->block_offset == fp->block->block_length) {
+      if(NULL != fp->block) block_destroy(fp->block);
+      fp->block = queue_get(fp->output, 1-fp->r->is_done);
+      if(NULL == fp->block) {
+          fp->block_offset = 0;
+#ifdef _USE_KNETFILE
+          fp->block_address = knet_tell(fp->r->fp_bgzf->x.fpr);
+#else
+          fp->block_address = ftello(fp->r->fp_bgzf->file);
+#endif
+      }
+      else {
+          fp->block_offset = fp->block->block_offset;
+          fp->block_address = fp->block->block_address;
+      }
+  }
+  else {
+      fp->block_offset = fp->block->block_offset;
+      fp->block_address = fp->block->block_address;
+  }
+
+  if(0 == bytes_read) fp->eof = 1;
 
   return bytes_read;
 }
@@ -385,6 +409,20 @@ pbgzf_write(PBGZF* fp, const void* data, int length)
 }
 
 int64_t 
+pbgzf_tell(PBGZF *fp)
+{
+  if('w' == fp->open_mode) {
+      // wait until the input queue and output queue are empty
+      queue_wait_until_empty(fp->input);
+      queue_wait_until_empty(fp->output);
+      return bgzf_tell(fp->w->fp_bgzf);
+  }
+  else { // reading
+      return ((fp->block_address << 16) | (fp->block_offset & 0xFFFF));
+  }
+}
+
+int64_t 
 pbgzf_seek(PBGZF* fp, int64_t pos, int where)
 {
   if(fp->open_mode != 'r') {
@@ -398,18 +436,30 @@ pbgzf_seek(PBGZF* fp, int64_t pos, int where)
 
   // signal and join
   pbgzf_signal_and_join(fp);
-
+  
   // seek
-  pos = bgzf_seek(fp->r->fp_bgzf, pos, where);
-
+  if(bgzf_seek(fp->r->fp_bgzf, pos, where) < 0) {
+      return -1;
+  };
+  
   // reset the queues
   queue_reset(fp->input);
   queue_reset(fp->output);
 
   // restart threads
   pbgzf_run(fp);
+  
+  // get a block
+  if(NULL != fp->block) block_destroy(fp->block);
+  fp->block = queue_get(fp->output, 1);
+  if(NULL == fp->block) fp->eof = 1; // must be EOF
+  
+  // reset block offset/address
+  fp->block_offset = pos & 0xFFFF;
+  fp->block_address = (pos >> 16) & 0xFFFFFFFFFFFFLL;
+  if(NULL != fp->block) fp->block->block_offset = fp->block_offset;
 
-  return pos;
+  return 0;
 }
 
 int 
@@ -479,8 +529,8 @@ pbgzf_main(int f_src, int f_dst, int compress, int compress_level, int queue_siz
   block_pool_t *pool = NULL;
 
   pool = block_pool_init(PBGZF_BLOCKS_POOL_NUM);
-  input = queue_init(queue_size, 0);
-  output = queue_init(queue_size, 1);
+  input = queue_init(queue_size, 0, 1, num_threads);
+  output = queue_init(queue_size, 1, num_threads, 1);
 
   r = reader_init(f_src, input, compress, pool);
   w = writer_init(f_dst, output, compress, compress_level, pool);
