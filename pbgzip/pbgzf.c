@@ -503,4 +503,5 @@ pbgzf_main(int f_src, int f_dst, int compress, int compress_level, int queue_siz
   queue_destroy(output);
   reader_destroy(r);
   writer_destroy(w);
+  block_pool_destroy(pool);
 }

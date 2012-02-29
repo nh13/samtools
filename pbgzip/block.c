@@ -129,6 +129,7 @@ void
 block_pool_destroy(block_pool_t *pool)
 {
   int32_t i;
+  if(NULL == pool) return;
   for(i=0;i<pool->m;i++) {
       block_destroy(pool->blocks[i]);
   }
