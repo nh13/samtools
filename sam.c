@@ -116,7 +116,9 @@ void samclose(samfile_t *fp)
 {
 	if (fp == 0) return;
 	if (fp->header) bam_header_destroy(fp->header);
-	if (fp->type & TYPE_BAM) bam_close(fp->x.bam);
+	if (fp->type & TYPE_BAM) {
+            bam_close(fp->x.bam);
+        }
 	else if (fp->type & TYPE_READ) sam_close(fp->x.tamr);
 	else fclose(fp->x.tamw);
 	free(fp);

@@ -22,15 +22,15 @@ queue_init(int32_t capacity, int8_t ordered)
   q->eof = 0;
     
   if(0 != pthread_mutex_init(q->mut, NULL)) {
-      fprintf(stderr, "Could not create mutex");
+      fprintf(stderr, "Could not create mutex\n");
       exit(1);
   }
   if(0 != pthread_cond_init(q->not_full, NULL)) {
-      fprintf(stderr, "Could not create condition");
+      fprintf(stderr, "Could not create condition\n");
       exit(1);
   }
   if(0 != pthread_cond_init(q->not_empty, NULL)) {
-      fprintf(stderr, "Could not create condition");
+      fprintf(stderr, "Could not create condition\n");
       exit(1);
   }
 
@@ -44,13 +44,12 @@ queue_add(queue_t *q, block_t *b, int8_t wait)
   while(q->n == q->mem) {
       if(wait && 0 == q->eof) {
           if(0 != pthread_cond_wait(q->not_full, q->mut)) {
-              fprintf(stderr, "Could not condition wait");
+              fprintf(stderr, "Could not condition wait\n");
               exit(1);
           }
       }
       else {
           safe_mutex_unlock(q->mut);
-          fprintf(stderr, "RETURNING HERE 3\n");
           return 0;
       }
   }
@@ -58,13 +57,12 @@ queue_add(queue_t *q, block_t *b, int8_t wait)
       while(q->id - q->n + q->mem <= b->id) {
           if(wait && 0 == q->eof) {
               if(0 != pthread_cond_wait(q->not_full, q->mut)) {
-                  fprintf(stderr, "Could not condition wait");
+                  fprintf(stderr, "Could not condition wait\n");
                   exit(1);
               }
           }
           else {
               safe_mutex_unlock(q->mut);
-              fprintf(stderr, "RETURNING HERE 4\n");
               return 0;
           }
       }
@@ -90,13 +88,12 @@ queue_get(queue_t *q, int8_t wait)
   while(0 == q->n) {
       if(wait && 0 == q->eof) {
           if(0 != pthread_cond_wait(q->not_empty, q->mut)) {
-              fprintf(stderr, "Could not condition wait");
+              fprintf(stderr, "Could not condition wait\n");
               exit(1);
           }
       }
       else {
           safe_mutex_unlock(q->mut);
-          fprintf(stderr, "RETURNING HERE 1\n");
           return NULL;
       }
   }
@@ -105,13 +102,12 @@ queue_get(queue_t *q, int8_t wait)
       while(NULL == b) {
           if(wait && 0 == q->eof) {
               if(0 != pthread_cond_wait(q->not_empty, q->mut)) {
-                  fprintf(stderr, "Could not condition wait");
+                  fprintf(stderr, "Could not condition wait\n");
                   exit(1);
               }
           }
           else {
               safe_mutex_unlock(q->mut);
-              fprintf(stderr, "RETURNING HERE 2\n");
               return NULL;
           }
           b = q->queue[q->head];
@@ -123,10 +119,6 @@ queue_get(queue_t *q, int8_t wait)
   q->n--;
   pthread_cond_signal(q->not_full);
   safe_mutex_unlock(q->mut);
-  if(NULL == b) {
-      fprintf(stderr, "RETURNING HERE 2.5\n");
-      return NULL;
-  }
   return b;
 }
 
@@ -136,7 +128,6 @@ queue_close(queue_t *q)
   if(1 == q->eof) return;
   safe_mutex_lock(q->mut);
   q->eof = 1;
-  fprintf(stderr, "EOF reached ordered=%d\n", q->ordered); // HERE
   pthread_cond_broadcast(q->not_full);
   pthread_cond_broadcast(q->not_empty);
   safe_mutex_unlock(q->mut);

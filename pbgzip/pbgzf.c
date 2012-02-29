@@ -279,6 +279,12 @@ PBGZF* pbgzf_open(const char* path, const char* __restrict mode)
 int 
 pbgzf_close(PBGZF* fp)
 {
+  queue_close(fp->input);
+  if('r' == fp->open_mode) {
+      fp->r->is_done = 1; // force reader to shut down
+      queue_close(fp->output);
+  }
+
   pbgzf_signal_and_join(fp);
 
   // destroy
