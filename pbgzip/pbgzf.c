@@ -299,6 +299,7 @@ pbgzf_close(PBGZF* fp)
   if(NULL != fp->r) reader_destroy(fp->r);
   if(NULL != fp->w) writer_destroy(fp->w);
   
+  block_destroy(fp->block);
   block_pool_destroy(fp->pool);
   free(fp);
 

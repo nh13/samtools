@@ -13,7 +13,7 @@ AOBJS=		bam_tview.o bam_plcmd.o sam_view.o \
 			bamtk.o kaln.o bam2bcf.o bam2bcf_indel.o errmod.o sample.o \
 			cut_target.o phase.o bam2depth.o bam_qa.o padding.o
 PROG=		samtools
-INCLUDES=	-I.
+INCLUDES=	-I. -I./pbgzip
 SUBDIRS=	. bcftools misc 
 LIBPATH=
 LIBCURSES=	-lcurses # -lXCurses
