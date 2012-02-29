@@ -12,6 +12,8 @@ typedef struct {
     int16_t cid;
 } consumer_t;
 
+#define CONSUMER_WORKING_POOL_NUM 1000
+
 consumer_t*
 consumer_init(queue_t *input,
               queue_t *output,

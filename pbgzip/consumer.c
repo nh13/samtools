@@ -52,20 +52,20 @@ consumer_inflate_block(consumer_t *c, block_t *block)
 
   status = inflateInit2(&zs, GZIP_WINDOW_BITS);
   if (status != Z_OK) {
-      fprintf(stderr, "inflate init failed");
+      fprintf(stderr, "inflate init failed\n");
       return -1;
   }
 
   status = inflate(&zs, Z_FINISH);
   if (status != Z_STREAM_END) {
       inflateEnd(&zs);
-      fprintf(stderr, "inflate failed");
+      fprintf(stderr, "inflate failed\n");
       return -1;
   }
 
   status = inflateEnd(&zs);
   if (status != Z_OK) {
-      fprintf(stderr, "inflate end failed");
+      fprintf(stderr, "inflate end failed\n");
       return -1;
   }
 
@@ -189,43 +189,86 @@ consumer_run(void *arg)
 {
   consumer_t *c = (consumer_t*)arg;
   block_t *b = NULL;
+  int32_t wait;
   uint64_t n = 0;
+  block_pool_t *pool_in = NULL, *pool_out = NULL;
 
-  //fprintf(stderr, "consumer starting\n");
+  pool_in = block_pool_init2(CONSUMER_WORKING_POOL_NUM);
+  pool_out = block_pool_init2(CONSUMER_WORKING_POOL_NUM);
+  
+  //fprintf(stderr, "consumer #%d starting\n", c->cid);
+
   while(1) {
-      // get block
-      b = queue_get(c->input, 1);
-      if(NULL == b) {
+      // get block(s)
+      while(pool_in->n < pool_in->m) { // more to read in
+          b = queue_get(c->input, (0 == pool_in->n && 0 == pool_out->n) ? 1 : 0); // NB: only wait if the pools are empty
+          if(NULL == b) {
+              break;
+          }
+          //fprintf(stderr, "ADDING to pool_in b->id=%d\n", b->id);
+          if(0 == block_pool_add(pool_in, b)) {
+              fprintf(stderr, "consumer block_pool_add: bug encountered\n");
+              exit(1);
+          }
+          b = NULL;
+      }
+      if(0 == pool_in->n && 0 == pool_out->n) {
           if(1 == c->reader->is_done) { // TODO: does this need to be synced?
               break;
           }
           else {
-              fprintf(stderr, "consumer queue_get: bug encountered");
+              fprintf(stderr, "consumer queue_get: bug encountered\n");
               exit(1);
           }
       }
 
       // inflate/deflate
-      if(0 == c->compress) {
-          if((b->block_length = consumer_inflate_block(c, b)) < 0) {
-              fprintf(stderr, "Error decompressing");
+      while(0 < pool_in->n && pool_out->n < pool_in->m) { // consume while the in has more and the out has room
+          b = block_pool_peek(pool_in);
+          //fprintf(stderr, "PEEK from pool_in b->id=%d\n", b->id);
+          if(NULL == b) {
+              fprintf(stderr, "consumer block_pool_get: bug encountered\n");
               exit(1);
           }
-      }
-      else {
-          if((b->block_length = consumer_deflate_block(c, b)) < 0) {
-              fprintf(stderr, "Error decompressing");
+          if(0 == c->compress) {
+              if((b->block_length = consumer_inflate_block(c, b)) < 0) {
+                  fprintf(stderr, "Error decompressing\n");
+                  exit(1);
+              }
+          }
+          else {
+              if((b->block_length = consumer_deflate_block(c, b)) < 0) {
+                  fprintf(stderr, "Error decompressing\n");
+                  exit(1);
+              }
+          }
+          if(0 == block_pool_add(pool_out, b)) {
+              fprintf(stderr, "consumer block_pool_add: bug encountered\n");
               exit(1);
           }
+          block_pool_get(pool_in); // ignore return
+          b = NULL;
       }
 
       // put back a block
-      if(!queue_add(c->output, b, 1)) {
-          fprintf(stderr, "consumer queue_add: bug encountered");
-          exit(1);
+      while(0 < pool_out->n) {
+          b = block_pool_peek(pool_out);
+          // NB: only wait if the pools are full
+          wait = (pool_in->m == pool_in->n && pool_out->m == pool_out->n) ? 1 : 0;
+          if(!queue_add(c->output, b, wait)) {
+              if(1 == wait) {
+                  fprintf(stderr, "consumer queue_add: bug encountered\n");
+                  exit(1);
+              }
+              else {
+                  break;
+              }
+          }
+          block_pool_get(pool_out); // ignore return
+          b = NULL;
+          n++;
       }
       
-      n++;
   }
 
   c->is_done = 1;
@@ -236,6 +279,10 @@ consumer_run(void *arg)
   pthread_cond_signal(c->input->not_empty);
   pthread_cond_signal(c->output->not_full);
   pthread_cond_signal(c->output->not_empty);
+  
+  // destroy the pool
+  block_pool_destroy(pool_in);
+  block_pool_destroy(pool_out);
 
   return arg;
 }

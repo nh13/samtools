@@ -31,6 +31,7 @@ typedef struct {
 
 typedef struct {
     block_t *block; // buffer block
+    block_pool_t *pool;
 
     char open_mode;
     int32_t queue_size;
@@ -51,7 +52,8 @@ typedef struct {
 extern "C" {
 #endif
 
-#define PBGZF_QUEUE_SIZE 1000
+#define PBGZF_QUEUE_SIZE 10000
+#define PBGZF_BLOCKS_POOL_NUM 10000
 
 /*
  * Open an existing file descriptor for reading or writing.

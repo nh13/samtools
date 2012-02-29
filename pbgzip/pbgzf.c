@@ -225,19 +225,22 @@ pbgzf_init(int fd, const char* __restrict mode)
   // queues
   fp->open_mode = open_mode;
   fp->num_threads = detect_cpus(); // TODO: do we want to use all the threads?
+  //fp->num_threads = 1;
   fp->queue_size = PBGZF_QUEUE_SIZE;
   fp->input = queue_init(fp->queue_size, 0);
   fp->output = queue_init(fp->queue_size, 1);
+  
+  fp->pool = block_pool_init(PBGZF_BLOCKS_POOL_NUM);
 
   if('w' == open_mode) { // write to a compressed file
       fp->r = NULL; // do not read
       fp->p = NULL; // do not produce data
       fp->c = consumers_init(fp->num_threads, fp->input, fp->output, fp->r, 1, compress_level); // deflate/compress
-      fp->w = writer_init(fd, fp->output, 1, compress_level); // write data
+      fp->w = writer_init(fd, fp->output, 1, compress_level, fp->pool); // write data
       fp->o = outputter_init(fp->w);
   }
   else { // read from a compressed file
-      fp->r = reader_init(fd, fp->input, 0); // read the compressed file
+      fp->r = reader_init(fd, fp->input, 0, fp->pool); // read the compressed file
       fp->p = producer_init(fp->r);
       fp->c = consumers_init(fp->num_threads, fp->input, fp->output, fp->r, 0, compress_level); // inflate
       fp->w = NULL;
@@ -295,6 +298,9 @@ pbgzf_close(PBGZF* fp)
   if(NULL != fp->output) queue_destroy(fp->output);
   if(NULL != fp->r) reader_destroy(fp->r);
   if(NULL != fp->w) writer_destroy(fp->w);
+  
+  block_pool_destroy(fp->pool);
+  free(fp);
 
   return 0;
 }
@@ -459,7 +465,7 @@ void pbgzf_set_cache_size(PBGZF *fp, int cache_size)
 }
 
 void
-pbgzf_main(int f_src, int f_dst, int compress, int compress_level, int queue_size, int n_threads)
+pbgzf_main(int f_src, int f_dst, int compress, int compress_level, int queue_size, int num_threads)
 {
   // NB: this gives us greater control over queue size and the like
   queue_t *input = NULL;
@@ -469,13 +475,15 @@ pbgzf_main(int f_src, int f_dst, int compress, int compress_level, int queue_siz
   consumers_t *c = NULL;
   producer_t *p = NULL;
   outputter_t *o = NULL;
+  block_pool_t *pool = NULL;
 
+  pool = block_pool_init(PBGZF_BLOCKS_POOL_NUM);
   input = queue_init(queue_size, 0);
   output = queue_init(queue_size, 1);
 
-  r = reader_init(f_src, input, compress);
-  w = writer_init(f_dst, output, compress, compress_level);
-  c = consumers_init(n_threads, input, output, r, compress, compress_level);
+  r = reader_init(f_src, input, compress, pool);
+  w = writer_init(f_dst, output, compress, compress_level, pool);
+  c = consumers_init(num_threads, input, output, r, compress, compress_level);
   p = producer_init(r);
   o = outputter_init(w);
 

@@ -10,7 +10,7 @@
 #include "writer.h"
 
 writer_t*
-writer_init(int fd, queue_t *output, uint8_t compress, int32_t compress_level)
+writer_init(int fd, queue_t *output, uint8_t compress, int32_t compress_level, block_pool_t *pool)
 {
   writer_t *w = calloc(1, sizeof(writer_t));
 
@@ -36,6 +36,7 @@ writer_init(int fd, queue_t *output, uint8_t compress, int32_t compress_level)
   }
   w->output = output;
   w->compress = compress;
+  w->pool = pool;
 
   return w;
 }
@@ -70,40 +71,60 @@ writer_run(void *arg)
   writer_t *w = (writer_t*)arg;
   block_t *b = NULL;
   uint64_t n = 0;
+  block_pool_t *pool = NULL;
+
+  pool = block_pool_init2(WRITER_BLOCK_POOL_NUM);
 
   while(!w->is_done) {
-      b = queue_get(w->output, 1);
-      if(NULL == b) {
-          if(1 == w->output->eof) { // TODO: does this need to be synced?
-              break;
+      while(pool->n < pool->m) {
+          b = queue_get(w->output, (0 == pool->n) ? 1 : 0);
+          if(NULL == b) {
+              if(0 == pool->n) {
+                  fprintf(stderr, "writer queue_get: bug encountered\n");
+                  exit(1);
+              }
+          }
+          if(0 == block_pool_add(pool, b)) {
+              fprintf(stderr, "writer block_pool_add: bug encountered\n");
+              exit(1);
+          }
+          b = NULL;
+      }
+      if(0 == pool->n && 1 == w->output->eof) { // TODO: does this need to be synced?
+          break;
+      }
+
+      while(0 < pool->n) {
+          b = block_pool_get(pool);
+          if(NULL == b) {
+              fprintf(stderr, "writer block_pool_get: bug encountered\n");
+              exit(1);
+          }
+          if(0 == w->compress) {
+              if(writer_write_block1(w->fp_file, b) != b->block_length) {
+                  fprintf(stderr, "writer writer_write_block: bug encountered\n");
+                  exit(1);
+              }
           }
           else {
-              fprintf(stderr, "writer queue_get: bug encountered\n");
+              if(writer_write_block2(w->fp_bgzf, b) != b->block_length) {
+                  fprintf(stderr, "writer writer_write_block: bug encountered\n");
+                  exit(1);
+              }
+          }
+          if(0 == block_pool_add(w->pool, b)) {
+              fprintf(stderr, "writer block_pool_add: bug encountered\n");
               exit(1);
           }
+          n++;
       }
-
-      if(0 == w->compress) {
-          if(writer_write_block1(w->fp_file, b) != b->block_length) {
-              fprintf(stderr, "writer writer_write_block: bug encountered\n");
-              exit(1);
-          }
-      }
-      else {
-          if(writer_write_block2(w->fp_bgzf, b) != b->block_length) {
-              fprintf(stderr, "writer writer_write_block: bug encountered\n");
-              exit(1);
-          }
-      }
-      block_destroy(b);
-
-      n++;
   }
 
   w->is_done = 1;
   //fprintf(stderr, "writer written %llu blocks\n", n);
 
   // no need to signal, no one depends on me :(
+  block_pool_destroy(pool);
 
   return arg;
 }
