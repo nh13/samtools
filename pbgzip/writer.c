@@ -76,12 +76,15 @@ writer_run(void *arg)
   pool = block_pool_init2(WRITER_BLOCK_POOL_NUM);
 
   while(!w->is_done) {
-      while(pool->n < pool->m) {
+      while(pool->n < pool->m) { // more to read from the output queue
           b = queue_get(w->output, (0 == pool->n) ? 1 : 0);
           if(NULL == b) {
               if(0 == pool->n) {
                   fprintf(stderr, "writer queue_get: bug encountered\n");
                   exit(1);
+              }
+              else {
+                  break;
               }
           }
           if(0 == block_pool_add(pool, b)) {
@@ -90,11 +93,12 @@ writer_run(void *arg)
           }
           b = NULL;
       }
+
       if(0 == pool->n && 1 == w->output->eof) { // TODO: does this need to be synced?
           break;
       }
 
-      while(0 < pool->n) {
+      while(0 < pool->n) { // write all the blocks
           b = block_pool_get(pool);
           if(NULL == b) {
               fprintf(stderr, "writer block_pool_get: bug encountered\n");
