@@ -1,9 +1,14 @@
 #ifndef PBGZF_H_
 #define PBGZF_H_
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+#include <pthread.h>
+#include "../bgzf.h"
+#include "block.h"
+#include "queue.h"
+#include "reader.h"
+#include "consumer.h"
+#include "writer.h"
+#include "util.h"
 
 typedef struct {
     pthread_attr_t attr;
@@ -27,9 +32,11 @@ typedef struct {
 typedef struct {
     block_t *block; // buffer block
 
-    int32_t read_mode;
+    char open_mode;
     int32_t queue_size;
     int32_t num_threads;
+    int32_t block_offset; // for pbgzf_try_flush
+    int32_t eof_ok; // for pbgzf_check_EOF
 
     queue_t *input;
     queue_t *output;
@@ -39,6 +46,10 @@ typedef struct {
     producer_t *p;
     outputter_t *o;
 } PBGZF;
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 #define PBGZF_QUEUE_SIZE 1000
 
@@ -87,7 +98,7 @@ int pbgzf_write(PBGZF* fp, const void* data, int length);
  * Returns -1 on error.
  */
 // TODO
-#define pbgzf_tell(fp) (0 == fp->read_mode) ? (bgzf_tell(fp->writer->fp_bgzf)) : (bgzf_tell(fp->reader->fp_bgzf)) 
+#define pbgzf_tell(fp) ('w' == fp->open_mode) ? (bgzf_tell(fp->w->fp_bgzf)) : (bgzf_tell(fp->r->fp_bgzf)) 
 
 /*
  * Set the file to read from the location specified by pos, which must
@@ -98,6 +109,14 @@ int pbgzf_write(PBGZF* fp, const void* data, int length);
  * Returns zero on success, -1 on error.
  */
 int64_t pbgzf_seek(PBGZF* fp, int64_t pos, int where);
+
+int pbgzf_check_EOF(PBGZF *fp);
+
+int pbgzf_flush(PBGZF* fp);
+
+int pbgzf_flush_try(PBGZF *fp, int size);
+
+void pbgzf_set_cache_size(PBGZF *fp, int cache_size);
 
 #ifdef __cplusplus
 }

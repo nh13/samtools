@@ -5,38 +5,45 @@
 
 #define BUF_SIZE 0x10000
 
-int bam_reheader(BGZF *in, const bam_header_t *h, int fd)
+int bam_reheader(bamFile in, const bam_header_t *h, int fd)
 {
-	BGZF *fp;
+	bamFile fp;
 	bam_header_t *old;
 	int len;
 	uint8_t *buf;
 	if (in->open_mode != 'r') return -1;
 	buf = malloc(BUF_SIZE);
 	old = bam_header_read(in);
-	fp = bgzf_fdopen(fd, "w");
+	fp = bam_dopen(fd, "w");
 	bam_header_write(fp, h);
+        bam_flush(fp); // flush after the header
+        /*
 	if (in->block_offset < in->block_length) {
 		bgzf_write(fp, in->uncompressed_block + in->block_offset, in->block_length - in->block_offset);
 		bgzf_flush(fp);
 	}
-#ifdef _USE_KNETFILE
-	while ((len = knet_read(in->x.fpr, buf, BUF_SIZE)) > 0)
-		fwrite(buf, 1, len, fp->x.fpw);
+        */
+#ifdef PBGZF_USE
+        BGZF *fp_bgzf = in->r->fp_bgzf;
 #else
-	while (!feof(in->file) && (len = fread(buf, 1, BUF_SIZE, in->file)) > 0)
-		fwrite(buf, 1, len, fp->file);
+        BGZF *fp_bgzf = fp;
+#endif
+#ifdef _USE_KNETFILE
+	while ((len = knet_read(fp_bgzf->x.fpr, buf, BUF_SIZE)) > 0)
+		fwrite(buf, 1, len, fp_bgzf->x.fpw);
+#else
+	while (!feof(fp_bgzf->file) && (len = fread(buf, 1, BUF_SIZE, fp_bgzf->file)) > 0)
+		fwrite(buf, 1, len, fp_bgzf->file);
 #endif
 	free(buf);
-	fp->block_offset = in->block_offset = 0;
-	bgzf_close(fp);
+	bam_close(fp);
 	return 0;
 }
 
 int main_reheader(int argc, char *argv[])
 {
 	bam_header_t *h;
-	BGZF *in;
+	bamFile in;
 	if (argc != 3) {
 		fprintf(stderr, "Usage: samtools reheader <in.header.sam> <in.bam>\n");
 		return 1;
@@ -56,6 +63,6 @@ int main_reheader(int argc, char *argv[])
 		return 1;
 	}
 	bam_reheader(in, h, fileno(stdout));
-	bgzf_close(in);
+	bam_close(in);
 	return 0;
 }

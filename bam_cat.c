@@ -72,14 +72,14 @@ all:bam_cat
 
 int bam_cat(int nfn, char * const *fn, const bam_header_t *h, const char* outbam)
 {
-    BGZF *fp;
+    bamFile fp;
     FILE* fp_file;
     uint8_t *buf;
     uint8_t ebuf[BGZF_EMPTY_BLOCK_SIZE];
     const int es=BGZF_EMPTY_BLOCK_SIZE;
     int i;
     
-    fp = strcmp(outbam, "-")? bgzf_open(outbam, "w") : bgzf_fdopen(fileno(stdout), "w");
+    fp = strcmp(outbam, "-")? bam_open(outbam, "w") : bam_dopen(fileno(stdout), "w");
     if (fp == 0) {
         fprintf(stderr, "[%s] ERROR: fail to open output file '%s'.\n", __func__, outbam);
         return 1;
@@ -88,7 +88,7 @@ int bam_cat(int nfn, char * const *fn, const bam_header_t *h, const char* outbam
     
     buf = (uint8_t*) malloc(BUF_SIZE);
     for(i = 0; i < nfn; ++i){
-        BGZF *in;
+        bamFile in;
         bam_header_t *old;
         int len,j;
         
@@ -100,20 +100,28 @@ int bam_cat(int nfn, char * const *fn, const bam_header_t *h, const char* outbam
         if (in->open_mode != 'r') return -1;
         
         old = bam_header_read(in);
-		if (h == 0 && i == 0) bam_header_write(fp, old);
-        
+        if (h == 0 && i == 0) bam_header_write(fp, old);
+
+        bam_flush(fp); // flush after the header
+        /*
         if (in->block_offset < in->block_length) {
             bgzf_write(fp, in->uncompressed_block + in->block_offset, in->block_length - in->block_offset);
             bgzf_flush(fp);
         }
+        */
         
         j=0;
+#ifdef PBGZF_USE
+        BGZF *fp_bgzf = in->r->fp_bgzf;
+#else
+        BGZF *fp_bgzf = fp;
+#endif
 #ifdef _USE_KNETFILE
-        fp_file=fp->x.fpw;
-        while ((len = knet_read(in->x.fpr, buf, BUF_SIZE)) > 0) {
+        fp_file=fp_bgzf->x.fpw;
+        while ((len = knet_read(fp_bgzf->x.fpr, buf, BUF_SIZE)) > 0) {
 #else  
-        fp_file=fp->file;
-        while (!feof(in->file) && (len = fread(buf, 1, BUF_SIZE, in->file)) > 0) {
+        fp_file=fp_bgzf->file;
+        while (!feof(in->file) && (len = fread(buf, 1, BUF_SIZE, fp_bgzf->file)) > 0) {
 #endif
             if(len<es){
                 int diff=es-len;
@@ -145,10 +153,10 @@ int bam_cat(int nfn, char * const *fn, const bam_header_t *h, const char* outbam
             }
         }
         bam_header_destroy(old);
-        bgzf_close(in);
+        bam_close(in);
     }
     free(buf);
-    bgzf_close(fp);
+    bam_close(fp);
     return 0;
 }
 

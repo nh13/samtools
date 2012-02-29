@@ -50,6 +50,7 @@ queue_add(queue_t *q, block_t *b, int8_t wait)
       }
       else {
           safe_mutex_unlock(q->mut);
+          fprintf(stderr, "RETURNING HERE 3\n");
           return 0;
       }
   }
@@ -63,6 +64,7 @@ queue_add(queue_t *q, block_t *b, int8_t wait)
           }
           else {
               safe_mutex_unlock(q->mut);
+              fprintf(stderr, "RETURNING HERE 4\n");
               return 0;
           }
       }
@@ -94,6 +96,7 @@ queue_get(queue_t *q, int8_t wait)
       }
       else {
           safe_mutex_unlock(q->mut);
+          fprintf(stderr, "RETURNING HERE 1\n");
           return NULL;
       }
   }
@@ -108,6 +111,7 @@ queue_get(queue_t *q, int8_t wait)
           }
           else {
               safe_mutex_unlock(q->mut);
+              fprintf(stderr, "RETURNING HERE 2\n");
               return NULL;
           }
           b = q->queue[q->head];
@@ -119,6 +123,10 @@ queue_get(queue_t *q, int8_t wait)
   q->n--;
   pthread_cond_signal(q->not_full);
   safe_mutex_unlock(q->mut);
+  if(NULL == b) {
+      fprintf(stderr, "RETURNING HERE 2.5\n");
+      return NULL;
+  }
   return b;
 }
 
@@ -128,6 +136,7 @@ queue_close(queue_t *q)
   if(1 == q->eof) return;
   safe_mutex_lock(q->mut);
   q->eof = 1;
+  fprintf(stderr, "EOF reached ordered=%d\n", q->ordered); // HERE
   pthread_cond_broadcast(q->not_full);
   pthread_cond_broadcast(q->not_empty);
   safe_mutex_unlock(q->mut);
