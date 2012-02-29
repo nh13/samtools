@@ -79,7 +79,7 @@ writer_run(void *arg)
       while(pool->n < pool->m) { // more to read from the output queue
           b = queue_get(w->output, (0 == pool->n) ? 1 : 0);
           if(NULL == b) {
-              if(0 == pool->n) {
+              if(0 == pool->n && 0 == w->output->eof) {
                   fprintf(stderr, "writer queue_get: bug encountered\n");
                   exit(1);
               }
