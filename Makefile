@@ -12,10 +12,10 @@ AOBJS=		bam_tview.o bam_plcmd.o sam_view.o \
 			bam_rmdup.o bam_rmdupse.o bam_mate.o bam_stat.o bam_color.o \
 			bamtk.o kaln.o bam2bcf.o bam2bcf_indel.o errmod.o sample.o \
 			cut_target.o phase.o bam2depth.o bam_qa.o padding.o
-PROG=		samtools
-INCLUDES=	-I. -I./pbgzip
-SUBDIRS=	. bcftools misc 
-LIBPATH=
+PROG=		samtools psamtools
+INCLUDES=	-I. 
+SUBDIRS=	pbgzip . bcftools misc 
+LIBPATH= 
 LIBCURSES=	-lcurses # -lXCurses
 
 .SUFFIXES:.c .o
@@ -46,6 +46,9 @@ libbam.a:$(LOBJS)
 
 samtools:lib-recur $(AOBJS)
 		$(CC) $(CFLAGS) -o $@ $(AOBJS) $(LDFLAGS) libbam.a -Lbcftools -lbcf $(LIBPATH) $(LIBCURSES) -lm -lz
+
+psamtools:lib-recur $(AOBJS)
+		$(CC) $(CFLAGS) -o $@ $(AOBJS) $(LDFLAGS) libbam.a -Lbcftools -lbcf -D _PBGZF_USE $(LIBPATH) $(LIBCURSES) -lm -lz
 
 razip:razip.o razf.o $(KNETFILE_O)
 		$(CC) $(CFLAGS) -o $@ razf.o razip.o $(KNETFILE_O) -lz

@@ -49,8 +49,7 @@
 
 #ifndef BAM_LITE
 #define BAM_VIRTUAL_OFFSET16
-#define PBGZF_USE 1 
-#ifndef PBGZF_USE 
+#ifndef _PBGZF_USE 
 #include "bgzf.h"
 /*! @abstract BAM file handler */
 typedef BGZF *bamFile;
