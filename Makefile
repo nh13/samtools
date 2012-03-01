@@ -1,7 +1,7 @@
 CC=			gcc
 CFLAGS=		-g -Wall -O2 -pthread
 #LDFLAGS=		-Wl,-rpath,\$$ORIGIN/../lib
-DFLAGS=		-D_FILE_OFFSET_BITS=64 -D_LARGEFILE64_SOURCE -D_USE_KNETFILE -D_CURSES_LIB=1 -DHAVE_LIBPTHREAD
+DFLAGS=		-D_FILE_OFFSET_BITS=64 -D_LARGEFILE64_SOURCE -D_USE_KNETFILE -D_CURSES_LIB=1 -DHAVE_LIBPTHREAD -D_PBGZF_USE
 KNETFILE_O=	knetfile.o
 LOBJS=		bgzf.o pbgzip/block.o pbgzip/consumer.o pbgzip/pbgzf.o pbgzip/pbgzip.o \
 			pbgzip/queue.o pbgzip/reader.o pbgzip/util.o pbgzip/writer.o \
@@ -12,7 +12,7 @@ AOBJS=		bam_tview.o bam_plcmd.o sam_view.o \
 			bam_rmdup.o bam_rmdupse.o bam_mate.o bam_stat.o bam_color.o \
 			bamtk.o kaln.o bam2bcf.o bam2bcf_indel.o errmod.o sample.o \
 			cut_target.o phase.o bam2depth.o bam_qa.o padding.o
-PROG=		samtools psamtools
+PROG=		samtools 
 INCLUDES=	-I. 
 SUBDIRS=	pbgzip . bcftools misc 
 LIBPATH= 
@@ -46,9 +46,6 @@ libbam.a:$(LOBJS)
 
 samtools:lib-recur $(AOBJS)
 		$(CC) $(CFLAGS) -o $@ $(AOBJS) $(LDFLAGS) libbam.a -Lbcftools -lbcf $(LIBPATH) $(LIBCURSES) -lm -lz
-
-psamtools:lib-recur $(AOBJS)
-		$(CC) $(CFLAGS) -o $@ $(AOBJS) $(LDFLAGS) libbam.a -Lbcftools -lbcf -D _PBGZF_USE $(LIBPATH) $(LIBCURSES) -lm -lz
 
 razip:razip.o razf.o $(KNETFILE_O)
 		$(CC) $(CFLAGS) -o $@ razf.o razip.o $(KNETFILE_O) -lz
