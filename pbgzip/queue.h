@@ -35,6 +35,15 @@ queue_add(queue_t *q, block_t *b, int8_t wait);
 block_t*
 queue_get(queue_t *q, int8_t wait);
 
+// TODO
+/*
+int32_t
+queue_add_batch(queue_t *q, block_pool_t *pool, int8_t wait);
+
+int32_t
+queue_get_batch(queue_t *q, block_pool_t *pool, int8_t wait);
+*/
+
 void
 queue_wait_until_empty(queue_t *q);
 

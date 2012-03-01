@@ -336,7 +336,7 @@ pbgzf_read(PBGZF* fp, void* data, int length)
       }
       //fp->block = queue_get(fp->output, 1-fp->r->is_done);
       // NB: do not wait if there will be no more data
-      fp->block = queue_get(fp->output, (QUEUE_STATE_EOF == fp->output) ? 0 : 1);
+      fp->block = queue_get(fp->output, (QUEUE_STATE_EOF == fp->output->state) ? 0 : 1);
       if(NULL == fp->block) {
           fp->block_offset = 0;
 #ifdef _USE_KNETFILE

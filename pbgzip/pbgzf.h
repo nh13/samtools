@@ -55,8 +55,8 @@ typedef struct {
 extern "C" {
 #endif
 
-#define PBGZF_QUEUE_SIZE 100000
-#define PBGZF_BLOCKS_POOL_NUM 100000
+#define PBGZF_QUEUE_SIZE 100
+#define PBGZF_BLOCKS_POOL_NUM 100
 
 /*
  * Open an existing file descriptor for reading or writing.
