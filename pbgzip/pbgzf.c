@@ -233,8 +233,7 @@ pbgzf_init(int fd, const char* __restrict mode)
 
   // queues
   fp->open_mode = open_mode;
-  //fp->num_threads = detect_cpus(); // TODO: do we want to use all the threads?
-  fp->num_threads = 8;
+  fp->num_threads = detect_cpus(); // TODO: do we want to use all the threads?
   fp->queue_size = PBGZF_QUEUE_SIZE;
   fp->input = queue_init(fp->queue_size, 0, 1, fp->num_threads);
   fp->output = queue_init(fp->queue_size, 1, fp->num_threads, 1);
