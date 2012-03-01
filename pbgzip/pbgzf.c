@@ -649,11 +649,8 @@ pbgzf_main(int f_src, int f_dst, int compress, int compress_level, int queue_siz
   consumers_run(c);
   outputter_run(o);
 
-  fprintf(stderr, "p join\n");
   producer_join(p);
-  fprintf(stderr, "c join\n");
   consumers_join(c);
-  fprintf(stderr, "o join\n");
   outputter_join(o);
 
   consumers_destroy(c);
