@@ -111,7 +111,7 @@ int bam_cat(int nfn, char * const *fn, const bam_header_t *h, const char* outbam
         */
         
         j=0;
-#ifdef PBGZF_USE
+#ifdef _PBGZF_USE
         BGZF *fp_bgzf = in->r->fp_bgzf;
 #else
         BGZF *fp_bgzf = fp;

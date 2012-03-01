@@ -40,6 +40,7 @@ typedef struct {
     int64_t block_address; // for pbgzf_flush_tr
     int32_t eof_ok; // for pbgzf_check_EOF
     int32_t eof;
+    int64_t n_blocks;
 
     queue_t *input;
     queue_t *output;
@@ -54,8 +55,8 @@ typedef struct {
 extern "C" {
 #endif
 
-#define PBGZF_QUEUE_SIZE 10000
-#define PBGZF_BLOCKS_POOL_NUM 10000
+#define PBGZF_QUEUE_SIZE 100000
+#define PBGZF_BLOCKS_POOL_NUM 100000
 
 /*
  * Open an existing file descriptor for reading or writing.

@@ -8,9 +8,12 @@
 #include "util.h"
 #include "block.h"
 #include "queue.h"
+#include "pbgzf.h"
 #include "reader.h"
 
 static const int WINDOW_SIZE = MAX_BLOCK_SIZE;
+
+#define READER_USE_POOL
 
 reader_t*
 reader_init(int fd, queue_t *input, uint8_t compress, block_pool_t *pool)
@@ -98,10 +101,13 @@ reader_run(void *arg)
   int32_t wait;
   uint64_t n = 0;
   block_pool_t *pool;
+  
+  //fprintf(stderr, "reader staring\n");
 
-  pool = block_pool_init2(READER_BLOCK_POOL_NUM);
+  pool = block_pool_init2(PBGZF_BLOCKS_POOL_NUM);
 
   while(!r->is_done) {
+#ifdef READER_USE_POOL
       // read block
       while(pool->n < pool->m) {
           if(NULL == r->pool || NULL == (b = block_pool_get(r->pool))) {
@@ -129,6 +135,7 @@ reader_run(void *arg)
               exit(1);
           }
       }
+      //fprintf(stderr, "reader: read in pool->n=%d\n", pool->n);
 
       if(0 == pool->n) {
           break;
@@ -143,9 +150,20 @@ reader_run(void *arg)
           }
           wait = (pool->n == pool->m) ? 1 : 0; // NB: only wait if we cannot read in any more...
           if(0 == queue_add(r->input, b, wait)) {
-              if(1 == wait && 0 == r->input->eof) { // error while waiting
-                  fprintf(stderr, "reader queue_add: bug encountered\n");
-                  exit(1);
+              if(1 == wait) {
+                  if(QUEUE_STATE_OK == r->input->state) {
+                      fprintf(stderr, "reader queue_add: bug encountered\n");
+                      exit(1);
+                  }
+                  else if(QUEUE_STATE_EOF == r->input->state) { // EOF, quit
+                      break;
+                  }
+                  else {
+                      // NB: if the reader has blocks, it does not make sense to
+                      // flush
+                      fprintf(stderr, "reader queue_add: bug encountered\n");
+                      exit(1);
+                  }
               }
               else {
                   break;
@@ -155,16 +173,59 @@ reader_run(void *arg)
           b = NULL;
           n++;
       }
+      //fprintf(stderr, "reader: add to pool->n=%d\n", pool->n);
+      //fprintf(stderr, "r->output->n=%d\n", r->input->n);
+#else
+      // read block
+      b = block_init(); 
+      if(0 == r->compress) {
+          if(reader_read_block(r->fp_bgzf, b) < 0) {
+              fprintf(stderr, "reader reader_read_block: bug encountered\n");
+              exit(1);
+          }
+      }
+      else { 
+          if((b->block_length = read(r->fd_file, b->buffer, WINDOW_SIZE)) < 0) {
+              fprintf(stderr, "reader read: bug encountered\n");
+              exit(1);
+          }
+      }
+      if(NULL == b || 0 == b->block_length) {
+          block_destroy(b);
+          b = NULL;
+          break;
+      }
+
+      // add to the queue
+      wait = 1;
+      if(0 == queue_add(r->input, b, wait)) {
+          if(1 == wait) {
+              if(QUEUE_STATE_OK == r->input->state) {
+                  fprintf(stderr, "reader queue_add: bug encountered\n");
+                  exit(1);
+              }
+              else if(QUEUE_STATE_EOF == r->input->state) { // EOF, quit
+                  break;
+              }
+              else {
+                  queue_wait_until_not_flush(r->input);
+                  continue;
+              }
+          }
+          else {
+              break;
+          }
+      }
+      b = NULL;
+      n++;
+#endif
   }
   
   //fprintf(stderr, "reader read %llu blocks\n", n);
+  //fprintf(stderr, "r->input->n=%d\n", r->input->n);
 
   r->is_done = 1;
   r->input->num_adders--;
-
-  // signal other threads
-  pthread_cond_signal(r->input->not_full);
-  pthread_cond_signal(r->input->not_empty);
 
   block_pool_destroy(pool);
 

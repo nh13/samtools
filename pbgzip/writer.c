@@ -7,7 +7,10 @@
 #include "../bgzf.h"
 #include "block.h"
 #include "queue.h"
+#include "pbgzf.h"
 #include "writer.h"
+
+//#define WRITER_USE_POOL
 
 writer_t*
 writer_init(int fd, queue_t *output, uint8_t compress, int32_t compress_level, block_pool_t *pool)
@@ -37,7 +40,7 @@ writer_init(int fd, queue_t *output, uint8_t compress, int32_t compress_level, b
   w->output = output;
   w->compress = compress;
   w->pool_fp= pool;
-  w->pool_local = block_pool_init2(WRITER_BLOCK_POOL_NUM);
+  w->pool_local = block_pool_init2(PBGZF_BLOCKS_POOL_NUM);
 
   return w;
 }
@@ -71,15 +74,29 @@ writer_run(void *arg)
 {
   writer_t *w = (writer_t*)arg;
   block_t *b = NULL;
+  int32_t wait;
   uint64_t n = 0;
 
+  //fprintf(stderr, "writer starting w->output->n=%d\n", w->output->n);
+  
   while(!w->is_done) {
+#ifdef WRITER_USE_POOL
       while(w->pool_local->n < w->pool_local->m) { // more to read from the output queue
-          b = queue_get(w->output, (0 == w->pool_local->n) ? 1 : 0);
+          wait = (0 == w->pool_local->n) ? 1 : 0;
+          b = queue_get(w->output, wait);
           if(NULL == b) {
-              if(0 == w->pool_local->n && 0 == w->output->eof) {
-                  fprintf(stderr, "writer queue_get: bug encountered\n");
-                  exit(1);
+              if(1 == wait) {
+                  if(QUEUE_STATE_OK == w->output->state) {
+                      fprintf(stderr, "writer queue_get: bug encountered\n");
+                      exit(1);
+                  }
+                  else if(QUEUE_STATE_EOF == w->output->state) {
+                      break;
+                  }
+                  else {
+                      queue_wait_until_not_flush(w->output);
+                      continue;
+                  }
               }
               else {
                   break;
@@ -91,8 +108,9 @@ writer_run(void *arg)
           }
           b = NULL;
       }
+      //fprintf(stderr, "writer: read from output w->pool_local->n=%d %d\n", w->pool_local->n, w->pool_local->m);
 
-      if(0 == w->pool_local->n && 1 == w->output->eof) { // TODO: does this need to be synced?
+      if(0 == w->pool_local->n && QUEUE_STATE_EOF == w->output->state) {
           break;
       }
 
@@ -120,6 +138,41 @@ writer_run(void *arg)
           }
           n++;
       }
+#else
+      wait = 1;
+      b = queue_get(w->output, wait);
+      if(NULL == b) {
+          if(1 == wait) {
+              if(QUEUE_STATE_OK == w->output->state) {
+                  fprintf(stderr, "writer queue_get: bug encountered\n");
+                  exit(1);
+              }
+              else if(QUEUE_STATE_EOF == w->output->state) {
+                  break;
+              }
+              else {
+                  queue_wait_until_not_flush(w->output);
+                  continue;
+              }
+          }
+          else {
+              break;
+          }
+      }
+      if(0 == w->compress) {
+          if(writer_write_block1(w->fp_file, b) != b->block_length) {
+              fprintf(stderr, "writer writer_write_block: bug encountered\n");
+              exit(1);
+          }
+      }
+      else {
+          if(writer_write_block2(w->fp_bgzf, b) != b->block_length) {
+              fprintf(stderr, "writer writer_write_block: bug encountered\n");
+              exit(1);
+          }
+      }
+      n++;
+#endif
   }
 
   w->is_done = 1;

@@ -10,7 +10,10 @@
 #include "block.h"
 #include "queue.h"
 #include "reader.h"
+#include "pbgzf.h"
 #include "consumer.h"
+
+//#define CONSUMER_USE_POOL
 
 consumer_t*
 consumer_init(queue_t *input,
@@ -190,15 +193,18 @@ consumer_run(void *arg)
   consumer_t *c = (consumer_t*)arg;
   block_t *b = NULL;
   int32_t wait;
-  uint64_t n = 0;
   block_pool_t *pool_in = NULL, *pool_out = NULL;
 
-  pool_in = block_pool_init2(CONSUMER_WORKING_POOL_NUM);
-  pool_out = block_pool_init2(CONSUMER_WORKING_POOL_NUM);
-  
+  pool_in = block_pool_init2(PBGZF_BLOCKS_POOL_NUM);
+  pool_out = block_pool_init2(PBGZF_BLOCKS_POOL_NUM);
+  c->n = 0;
+
   //fprintf(stderr, "consumer #%d starting\n", c->cid);
+  //fprintf(stderr, "consumer start pool_in->n=%d\n", pool_in->n);
+  //fprintf(stderr, "consumer start pool_out->n=%d\n", pool_out->n);
 
   while(1) {
+#ifdef CONSUMER_USE_POOL
       // get block(s)
       while(pool_in->n < pool_in->m) { // more to read in
           b = queue_get(c->input, (0 == pool_in->n && 0 == pool_out->n) ? 1 : 0); // NB: only wait if the pools are empty
@@ -212,8 +218,15 @@ consumer_run(void *arg)
           }
           b = NULL;
       }
-      if(0 == pool_in->n && 0 == pool_out->n) {
-          if(1 == c->reader->is_done) { // TODO: does this need to be synced?
+      //fprintf(stderr, "consumer get blocks pool_in->n=%d\n", pool_in->n);
+      //fprintf(stderr, "consumer get blocks pool_out->n=%d\n", pool_out->n);
+      if(0 == pool_in->n && 0 == pool_out->n) { // no more data
+          if(QUEUE_STATE_FLUSH == c->input->state) {
+              queue_wait_until_not_flush(c->input);
+              continue;
+          }
+          else if((NULL == c->reader && QUEUE_STATE_EOF == c->input->state) 
+             || (NULL != c->reader && 1 == c->reader->is_done)) { // TODO: does this need to be synced?
               break;
           }
           else {
@@ -249,6 +262,8 @@ consumer_run(void *arg)
           block_pool_get(pool_in); // ignore return
           b = NULL;
       }
+      //fprintf(stderr, "consumer inflate/deflate pool_in->n=%d\n", pool_in->n);
+      //fprintf(stderr, "consumer inflate/deflate pool_out->n=%d\n", pool_out->n);
 
       // put back a block
       while(0 < pool_out->n) {
@@ -266,26 +281,64 @@ consumer_run(void *arg)
           }
           block_pool_get(pool_out); // ignore return
           b = NULL;
-          n++;
+          c->n++;
       }
-      
+      //fprintf(stderr, "consumer output pool_in->n=%d\n", pool_in->n);
+      //fprintf(stderr, "consumer output pool_out->n=%d\n", pool_out->n);
+      //fprintf(stderr, "consumer output c->output->n=%d\n", c->output->n);
+#else
+      // get block
+      b = queue_get(c->input, 1);
+      if(NULL == b) {
+          if(QUEUE_STATE_FLUSH == c->input->state) {
+              queue_wait_until_not_flush(c->input);
+              continue;
+          }
+          else if((NULL == c->reader && QUEUE_STATE_EOF == c->input->state) 
+             || (NULL != c->reader && 1 == c->reader->is_done)) { // TODO: does this need to be synced?
+              break;
+          }
+          else {
+              fprintf(stderr, "consumer queue_get: bug encountered\n");
+              exit(1);
+          }
+      }
+
+      // inflate/deflate
+      if(0 == c->compress) {
+          if((b->block_length = consumer_inflate_block(c, b)) < 0) {
+              fprintf(stderr, "Error decompressing\n");
+              exit(1);
+          }
+      }
+      else {
+          if((b->block_length = consumer_deflate_block(c, b)) < 0) {
+              fprintf(stderr, "Error decompressing\n");
+              exit(1);
+          }
+      }
+
+      // put back a block
+      wait = 1;
+      if(!queue_add(c->output, b, wait)) {
+          fprintf(stderr, "consumer queue_add: bug encountered\n");
+          exit(1);
+      }
+      b = NULL;
+      c->n++;
+#endif
   }
 
   c->is_done = 1;
   c->input->num_getters--;
   c->output->num_adders--;
-  //fprintf(stderr, "Consumer #%d processed %llu blocks\n", c->cid, n);
+  //fprintf(stderr, "consumer #%d processed %llu blocks\n", c->cid, c->n);
 
-  // signal other threads
-  pthread_cond_signal(c->input->not_full);
-  pthread_cond_signal(c->input->not_empty);
-  pthread_cond_signal(c->output->not_full);
-  pthread_cond_signal(c->output->not_empty);
-  
   // destroy the pool
   block_pool_destroy(pool_in);
   block_pool_destroy(pool_out);
 
+  //fprintf(stderr, "consumer #%d exiting\n", c->cid);
   return arg;
 }
 

@@ -23,7 +23,7 @@ int bam_reheader(bamFile in, const bam_header_t *h, int fd)
 		bgzf_flush(fp);
 	}
         */
-#ifdef PBGZF_USE
+#ifdef _PBGZF_USE
         BGZF *fp_bgzf = in->r->fp_bgzf;
 #else
         BGZF *fp_bgzf = fp;

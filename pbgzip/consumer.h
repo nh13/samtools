@@ -10,9 +10,8 @@ typedef struct {
     int8_t compress;
     int32_t compress_level;
     int16_t cid;
+    int64_t n;
 } consumer_t;
-
-#define CONSUMER_WORKING_POOL_NUM 1000
 
 consumer_t*
 consumer_init(queue_t *input,

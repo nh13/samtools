@@ -12,8 +12,6 @@ typedef struct {
     block_pool_t *pool_local;
 } writer_t;
 
-#define WRITER_BLOCK_POOL_NUM 1000
-
 writer_t*
 writer_init(int fd, queue_t *output, uint8_t compress, int32_t compress_level, block_pool_t *pool);
 

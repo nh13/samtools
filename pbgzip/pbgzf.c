@@ -19,7 +19,6 @@
 #include "consumer.h"
 #include "pbgzf.h"
 
-
 static consumers_t*
 consumers_init(int32_t n, queue_t *input, queue_t *output, reader_t *reader, 
                int32_t compress, int32_t compress_level)
@@ -78,8 +77,8 @@ consumers_join(consumers_t *c)
           exit(1);
       }
   }
-  // close the output queue
-  queue_close(c->c[0]->output);
+  // flush the output queue
+  if(QUEUE_STATE_OK == c->c[0]->output->state) c->c[0]->output->state = QUEUE_STATE_FLUSH;
 }
 
 static void
@@ -128,7 +127,7 @@ producer_join(producer_t *p)
       exit(1);
   }
   // close the input queue
-  queue_close(p->r->input);
+  if(p->r->input->state == QUEUE_STATE_OK) p->r->input->state = QUEUE_STATE_FLUSH;
 }
 
 static void
@@ -185,7 +184,7 @@ static inline
 int
 pbgzf_min(int x, int y)
 {
-      return (x < y) ? x : y;
+  return (x < y) ? x : y;
 }
 
 static void
@@ -201,30 +200,12 @@ pbgzf_join(PBGZF *fp)
 {
   // join
   if(NULL != fp->p) producer_join(fp->p);
+  else if(QUEUE_STATE_OK == fp->input->state) fp->input->state = QUEUE_STATE_FLUSH;
   if(NULL != fp->c) consumers_join(fp->c);
+  else if(QUEUE_STATE_OK == fp->output->state) fp->output->state = QUEUE_STATE_FLUSH;
   if(NULL != fp->o) outputter_join(fp->o);
 }
 
-static void
-pbgzf_signal_and_join(PBGZF *fp)
-{
-  int32_t i;
-  // signal other threads to finish
-  pthread_cond_signal(fp->input->not_full);
-  pthread_cond_signal(fp->input->not_empty);
-  if(NULL != fp->w) fp->w->is_done = 1;
-  if(NULL != fp->c) {
-      for(i=0;i<fp->c->n;i++) {
-          fp->c->c[i]->is_done = 1;
-      }
-  }
-  if(NULL != fp->r) fp->r->is_done = 1;
-  
-  // join
-  pbgzf_join(fp);
-}
-
-  
 static PBGZF*
 pbgzf_init(int fd, const char* __restrict mode)
 {
@@ -247,18 +228,20 @@ pbgzf_init(int fd, const char* __restrict mode)
   else {
       return NULL;
   }
-  
+
   fp = calloc(1, sizeof(PBGZF));
 
   // queues
   fp->open_mode = open_mode;
-  fp->num_threads = detect_cpus(); // TODO: do we want to use all the threads?
-  //fp->num_threads = 1;
+  //fp->num_threads = detect_cpus(); // TODO: do we want to use all the threads?
+  fp->num_threads = 8;
   fp->queue_size = PBGZF_QUEUE_SIZE;
   fp->input = queue_init(fp->queue_size, 0, 1, fp->num_threads);
   fp->output = queue_init(fp->queue_size, 1, fp->num_threads, 1);
-  
+
   fp->pool = block_pool_init(PBGZF_BLOCKS_POOL_NUM);
+  fp->block = NULL;
+  fp->n_blocks = 0;
 
   if('w' == open_mode) { // write to a compressed file
       fp->r = NULL; // do not read
@@ -273,7 +256,7 @@ pbgzf_init(int fd, const char* __restrict mode)
       fp->c = consumers_init(fp->num_threads, fp->input, fp->output, fp->r, 0, compress_level); // inflate
       fp->w = NULL;
       fp->o = NULL; // do not write
-  
+
       fp->eof_ok = bgzf_check_EOF(fp->r->fp_bgzf); 
   }
 
@@ -308,33 +291,6 @@ PBGZF* pbgzf_open(const char* path, const char* __restrict mode)
 }
 
 int 
-pbgzf_close(PBGZF* fp)
-{
-  queue_close(fp->input);
-  if('r' == fp->open_mode) {
-      fp->r->is_done = 1; // force reader to shut down
-      queue_close(fp->output);
-  }
-
-  pbgzf_signal_and_join(fp);
-
-  // destroy
-  if(NULL != fp->c) consumers_destroy(fp->c);
-  if(NULL != fp->p) producer_destroy(fp->p);
-  if(NULL != fp->o) outputter_destroy(fp->o);
-  if(NULL != fp->input) queue_destroy(fp->input);
-  if(NULL != fp->output) queue_destroy(fp->output);
-  if(NULL != fp->r) reader_destroy(fp->r);
-  if(NULL != fp->w) writer_destroy(fp->w);
-  
-  block_destroy(fp->block);
-  block_pool_destroy(fp->pool);
-  free(fp);
-
-  return 0;
-}
-
-int 
 pbgzf_read(PBGZF* fp, void* data, int length)
 {
   if(length <= 0) {
@@ -353,7 +309,10 @@ pbgzf_read(PBGZF* fp, void* data, int length)
 
       available = (NULL == fp->block) ? 0 : (fp->block->block_length - fp->block->block_offset);
       if(0 == available) {
-          if(NULL != fp->block) block_destroy(fp->block);
+          if(NULL != fp->block) {
+              block_destroy(fp->block);
+              fp->n_blocks++;
+          }
           fp->block = queue_get(fp->output, 1);
       }
       available = (NULL == fp->block) ? 0 : (fp->block->block_length - fp->block->block_offset);
@@ -369,10 +328,15 @@ pbgzf_read(PBGZF* fp, void* data, int length)
       output += copy_length;
       bytes_read += copy_length;
   }
-  // Try to get a new block and reset addresss/offset
+  // Try to get a new block and reset address/offset
   if (NULL == fp->block || fp->block->block_offset == fp->block->block_length) {
-      if(NULL != fp->block) block_destroy(fp->block);
-      fp->block = queue_get(fp->output, 1-fp->r->is_done);
+      if(NULL != fp->block) {
+          block_destroy(fp->block);
+          fp->n_blocks++;
+      }
+      //fp->block = queue_get(fp->output, 1-fp->r->is_done);
+      // NB: do not wait if there will be no more data
+      fp->block = queue_get(fp->output, (QUEUE_STATE_EOF == fp->output) ? 0 : 1);
       if(NULL == fp->block) {
           fp->block_offset = 0;
 #ifdef _USE_KNETFILE
@@ -409,6 +373,7 @@ pbgzf_write(PBGZF* fp, const void* data, int length)
 
   if(NULL == fp->block) {
       fp->block = block_init();
+      fp->block->block_length = MAX_BLOCK_SIZE;
   }
 
   input = data;
@@ -419,18 +384,24 @@ pbgzf_write(PBGZF* fp, const void* data, int length)
       bgzf_byte_t* buffer = fp->block->buffer;
       memcpy(buffer + fp->block->block_offset, input, copy_length);
       fp->block->block_offset += copy_length;
+      fp->block_offset += copy_length;
       input += copy_length;
       bytes_written += copy_length;
-      fp->block_offset += copy_length;
+      /*
+         fprintf(stderr, "fp->block_offset=%d copy_length=%d bytes_written=%d\n", 
+         fp->block_offset, copy_length, bytes_written);
+         */
       if (fp->block->block_offset == block_length) {
           // add to the queue
           if(!queue_add(fp->input, fp->block, 1)) {
-              fprintf(stderr, "reader queue_add: bug encountered\n");
+              fprintf(stderr, "pbgzf_write queue_add: bug encountered\n");
               exit(1);
           }
           fp->block = NULL;
           fp->block = block_init();
           fp->block_offset = 0;
+          fp->block->block_length = MAX_BLOCK_SIZE;
+          fp->n_blocks++;
       }
   }
   return bytes_written;
@@ -453,6 +424,8 @@ pbgzf_tell(PBGZF *fp)
 int64_t 
 pbgzf_seek(PBGZF* fp, int64_t pos, int where)
 {
+  int32_t i;
+
   if(fp->open_mode != 'r') {
       fprintf(stderr, "file not open for read\n");
       return -1;
@@ -463,8 +436,20 @@ pbgzf_seek(PBGZF* fp, int64_t pos, int where)
   }
 
   // signal and join
-  pbgzf_signal_and_join(fp);
-  
+  // signal other threads to finish
+  pthread_cond_signal(fp->input->not_full);
+  pthread_cond_signal(fp->input->not_empty);
+  if(NULL != fp->w) fp->w->is_done = 1;
+  if(NULL != fp->c) {
+      for(i=0;i<fp->c->n;i++) {
+          fp->c->c[i]->is_done = 1;
+      }
+  }
+  if(NULL != fp->r) fp->r->is_done = 1;
+
+  // join
+  pbgzf_join(fp);
+
   // seek
   if(bgzf_seek(fp->r->fp_bgzf, pos, where) < 0) {
       return -1;
@@ -474,19 +459,19 @@ pbgzf_seek(PBGZF* fp, int64_t pos, int where)
   if(NULL != fp->p) producer_reset(fp->p);
   if(NULL != fp->c) consumers_reset(fp->c);
   if(NULL != fp->o) outputter_reset(fp->o);
-  
-  // reset the queues
-  queue_reset(fp->input, (NULL == fp->r) ? 0 : 1, (NULL == fp->c) ? 0 : fp->c->n);
-  queue_reset(fp->output, (NULL == fp->c) ? 0 : fp->c->n, 1);
 
+  // reset the queues
+  queue_reset(fp->input, 1, fp->num_threads);
+  queue_reset(fp->output, fp->num_threads, 1);
+  
   // restart threads
   pbgzf_run(fp);
-  
+
   // get a block
   if(NULL != fp->block) block_destroy(fp->block);
   fp->block = queue_get(fp->output, 1);
   if(NULL == fp->block) fp->eof = 1; // must be EOF
-  
+
   // reset block offset/address
   fp->block_offset = pos & 0xFFFF;
   fp->block_address = (pos >> 16) & 0xFFFFFFFFFFFFLL;
@@ -505,8 +490,8 @@ pbgzf_check_EOF(PBGZF *fp)
   return fp->eof_ok;
 }
 
-int 
-pbgzf_flush(PBGZF* fp)
+static int 
+pbgzf_flush_aux(PBGZF* fp, int32_t restart)
 {
   int ret;
 
@@ -515,37 +500,122 @@ pbgzf_flush(PBGZF* fp)
       exit(1);
   }
 
+  // flush
+  fp->block->block_length = fp->block->block_offset;
+  if(!queue_add(fp->input, fp->block, 1)) {
+      fprintf(stderr, "pbgzf_flush_aux queue_add: bug encountered\n");
+      exit(1);
+  }
+  fp->block = NULL;
+
+  // wait until the input is empty
+  queue_wait_until_empty(fp->input);
+
+  // reset block
+  fp->block = block_init();
+  fp->block_offset = 0;
+  fp->block->block_length = MAX_BLOCK_SIZE;
+
   // close the input queue 
   queue_close(fp->input);
-  
+
+  // wake all
+  queue_wake_all(fp->input);
+
   // join
   pbgzf_join(fp);
 
   // flush the underlying stream
   ret = bgzf_flush(fp->w->fp_bgzf);
   if(0 != ret) return ret;
-  
-  // reset the producer/consumer/outputter
-  if(NULL != fp->p) producer_reset(fp->p);
-  if(NULL != fp->c) consumers_reset(fp->c);
-  if(NULL != fp->o) outputter_reset(fp->o);
 
-  // reset the queues
-  queue_reset(fp->input, (NULL == fp->r) ? 0 : 1, (NULL == fp->c) ? 0 : fp->c->n);
-  queue_reset(fp->output, (NULL == fp->c) ? 0 : fp->c->n, 1);
+  if(1 == restart) {
+      // reset the producer/consumer/outputter
+      if(NULL != fp->p) producer_reset(fp->p);
+      if(NULL != fp->c) consumers_reset(fp->c);
+      if(NULL != fp->o) outputter_reset(fp->o);
 
-  // restart threads
-  pbgzf_run(fp);
+      // reset the queues
+      queue_reset(fp->input, 1, fp->num_threads);
+      queue_reset(fp->output, fp->num_threads, 1);
+
+      // restart threads
+      pbgzf_run(fp);
+  }
 
   return 0;
 }
 
 int 
+pbgzf_flush(PBGZF* fp)
+{
+  return pbgzf_flush_aux(fp, 1);
+}
+
+int 
 pbgzf_flush_try(PBGZF *fp, int size)
 {
-  if (fp->block_offset + size > MAX_BLOCK_SIZE) 
-    return pbgzf_flush(fp);
+  if (fp->block->block_offset + size > fp->block->block_length) { 
+      //NB: no need to restart the threads, just flush the current block
+
+      if('w' != fp->open_mode) {
+          fprintf(stderr, "file not open for writing\n");
+          exit(1);
+      }
+
+      // flush
+      fp->block->block_length = fp->block->block_offset;
+      if(!queue_add(fp->input, fp->block, 1)) {
+          fprintf(stderr, "pbgzf_flush_try queue_add: bug encountered\n");
+          exit(1);
+      }
+      fp->block = NULL;
+
+      // reset block
+      fp->block = block_init();
+      fp->block_offset = 0;
+      fp->block->block_length = MAX_BLOCK_SIZE;
+  }
   return -1;
+}
+
+int 
+pbgzf_close(PBGZF* fp)
+{
+  if('w' == fp->open_mode) {
+      // flush the data to the output file
+      pbgzf_flush_aux(fp, 0); // NB: no need to restart the threads
+  }
+  else {
+      // shut down the reader, regardless of where it is reading
+      fp->r->is_done = 1;
+  
+      // close the input queue
+      queue_close(fp->input); // NB: consumers should shut down when the input queue has EOF set
+
+      // wake all of the threads
+      queue_wake_all(fp->input);
+
+      // TODO: faster signal to the consumers that computation is complete
+      // join
+      pbgzf_join(fp);
+  }
+
+  // destroy
+  if(NULL != fp->c) consumers_destroy(fp->c);
+  if(NULL != fp->p) producer_destroy(fp->p);
+  if(NULL != fp->o) outputter_destroy(fp->o);
+  if(NULL != fp->input) queue_destroy(fp->input);
+  if(NULL != fp->output) queue_destroy(fp->output);
+  if(NULL != fp->r) reader_destroy(fp->r);
+  if(NULL != fp->w) writer_destroy(fp->w);
+
+  if(NULL != fp->block) block_destroy(fp->block);
+  fp->block = NULL;
+  block_pool_destroy(fp->pool);
+  free(fp);
+
+  return 0;
 }
 
 void pbgzf_set_cache_size(PBGZF *fp, int cache_size)
@@ -580,8 +650,11 @@ pbgzf_main(int f_src, int f_dst, int compress, int compress_level, int queue_siz
   consumers_run(c);
   outputter_run(o);
 
+  fprintf(stderr, "p join\n");
   producer_join(p);
+  fprintf(stderr, "c join\n");
   consumers_join(c);
+  fprintf(stderr, "o join\n");
   outputter_join(o);
 
   consumers_destroy(c);
