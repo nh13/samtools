@@ -151,3 +151,10 @@ writer_destroy(writer_t *w)
   block_pool_destroy(w->pool_local);
   free(w);
 }
+
+void
+writer_reset(writer_t *w)
+{
+  w->is_done = w->is_closed = 0;
+  block_pool_reset(w->pool_local);
+}

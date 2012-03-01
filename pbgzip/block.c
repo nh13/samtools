@@ -137,3 +137,14 @@ block_pool_destroy(block_pool_t *pool)
   free(pool->mut);
   free(pool);
 }
+
+void
+block_pool_reset(block_pool_t *pool)
+{
+  int32_t i;
+  for(i=0;i<pool->m;i++) {
+      block_destroy(pool->blocks[i]);
+      pool->blocks[i] = NULL;
+  }
+  pool->n = 0;
+}

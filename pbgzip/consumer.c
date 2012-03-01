@@ -296,3 +296,9 @@ consumer_destroy(consumer_t *c)
   free(c->buffer);
   free(c);
 }
+
+void
+consumer_reset(consumer_t *c)
+{
+  c->is_done = 0;
+}

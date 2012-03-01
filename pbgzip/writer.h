@@ -21,6 +21,9 @@ void*
 writer_run(void *arg);
 
 void
-writer_destroy(writer_t *r);
+writer_destroy(writer_t *w);
+
+void
+writer_reset(writer_t *w);
 
 #endif

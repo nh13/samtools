@@ -49,12 +49,18 @@ queue_add(queue_t *q, block_t *b, int8_t wait)
 {
   safe_mutex_lock(q->mut);
   if(0 == q->num_getters) {
+      /*
       fprintf(stderr, "No more getters in add\n");
       exit(1);
+      */
+      return 0;
   }
   if(0 == q->num_adders) { // then why are you adding?
+      /*
       fprintf(stderr, "No more adders\n");
       exit(1);
+      */
+      return 0;
   }
   while(q->n == q->mem) {
       if(wait && 0 == q->eof) {
@@ -101,8 +107,11 @@ queue_get(queue_t *q, int8_t wait)
   block_t *b = NULL;
   safe_mutex_lock(q->mut);
   if(0 == q->num_getters) { // then why are you getting
+      /*
       fprintf(stderr, "No more getters in get\n");
       exit(1);
+      */
+      return NULL;
   }
   while(0 == q->n) {
       if(1 == wait && 0 == q->eof && 0 < q->num_adders) {
@@ -169,7 +178,7 @@ queue_close(queue_t *q)
 }
 
 void
-queue_reset(queue_t *q)
+queue_reset(queue_t *q, int32_t num_adders, int32_t num_getters)
 {
   int32_t i;
   safe_mutex_lock(q->mut);
@@ -182,6 +191,8 @@ queue_reset(queue_t *q)
   q->head = q->tail = q->n = 0;
   q->id = 0;
   q->eof = 0;
+  q->num_adders = num_adders;
+  q->num_getters = num_getters;
   safe_mutex_unlock(q->mut);
 }
 

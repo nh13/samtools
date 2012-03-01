@@ -38,6 +38,6 @@ void
 queue_destroy(queue_t *q);
 
 void
-queue_reset(queue_t *q);
+queue_reset(queue_t *q, int32_t num_adders, int32_t num_getters);
 
 #endif

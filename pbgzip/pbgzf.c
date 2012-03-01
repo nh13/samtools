@@ -82,6 +82,15 @@ consumers_join(consumers_t *c)
   queue_close(c->c[0]->output);
 }
 
+static void
+consumers_reset(consumers_t *c)
+{
+  int32_t i;
+  for(i=0;i<c->n;i++) {
+      consumer_reset(c->c[i]);
+  }
+}
+
 static producer_t*
 producer_init(reader_t *r)
 {
@@ -122,6 +131,12 @@ producer_join(producer_t *p)
   queue_close(p->r->input);
 }
 
+static void
+producer_reset(producer_t *p)
+{
+  reader_reset(p->r);
+}
+
 static outputter_t*
 outputter_init(writer_t *w)
 {
@@ -160,6 +175,11 @@ outputter_join(outputter_t *o)
   }
 }
 
+static void
+outputter_reset(outputter_t *o)
+{
+  writer_reset(o->w);
+}
 
 static inline
 int
@@ -188,9 +208,17 @@ pbgzf_join(PBGZF *fp)
 static void
 pbgzf_signal_and_join(PBGZF *fp)
 {
+  int32_t i;
   // signal other threads to finish
   pthread_cond_signal(fp->input->not_full);
   pthread_cond_signal(fp->input->not_empty);
+  if(NULL != fp->w) fp->w->is_done = 1;
+  if(NULL != fp->c) {
+      for(i=0;i<fp->c->n;i++) {
+          fp->c->c[i]->is_done = 1;
+      }
+  }
+  if(NULL != fp->r) fp->r->is_done = 1;
   
   // join
   pbgzf_join(fp);
@@ -441,10 +469,15 @@ pbgzf_seek(PBGZF* fp, int64_t pos, int where)
   if(bgzf_seek(fp->r->fp_bgzf, pos, where) < 0) {
       return -1;
   };
+
+  // reset the producer/consumer/outputter
+  if(NULL != fp->p) producer_reset(fp->p);
+  if(NULL != fp->c) consumers_reset(fp->c);
+  if(NULL != fp->o) outputter_reset(fp->o);
   
   // reset the queues
-  queue_reset(fp->input);
-  queue_reset(fp->output);
+  queue_reset(fp->input, (NULL == fp->r) ? 0 : 1, (NULL == fp->c) ? 0 : fp->c->n);
+  queue_reset(fp->output, (NULL == fp->c) ? 0 : fp->c->n, 1);
 
   // restart threads
   pbgzf_run(fp);
@@ -491,10 +524,15 @@ pbgzf_flush(PBGZF* fp)
   // flush the underlying stream
   ret = bgzf_flush(fp->w->fp_bgzf);
   if(0 != ret) return ret;
+  
+  // reset the producer/consumer/outputter
+  if(NULL != fp->p) producer_reset(fp->p);
+  if(NULL != fp->c) consumers_reset(fp->c);
+  if(NULL != fp->o) outputter_reset(fp->o);
 
   // reset the queues
-  queue_reset(fp->input);
-  queue_reset(fp->output);
+  queue_reset(fp->input, (NULL == fp->r) ? 0 : 1, (NULL == fp->c) ? 0 : fp->c->n);
+  queue_reset(fp->output, (NULL == fp->c) ? 0 : fp->c->n, 1);
 
   // restart threads
   pbgzf_run(fp);

@@ -22,4 +22,7 @@ reader_run(void *arg);
 void
 reader_destroy(reader_t *r);
 
+void
+reader_reset(reader_t *r);
+
 #endif

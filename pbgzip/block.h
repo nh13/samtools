@@ -46,4 +46,7 @@ block_pool_peek(block_pool_t *pool);
 void
 block_pool_destroy(block_pool_t *pool);
 
+void
+block_pool_reset(block_pool_t *pool);
+
 #endif

@@ -143,7 +143,7 @@ reader_run(void *arg)
           }
           wait = (pool->n == pool->m) ? 1 : 0; // NB: only wait if we cannot read in any more...
           if(0 == queue_add(r->input, b, wait)) {
-              if(1 == wait) { // error while waiting
+              if(1 == wait && 0 == r->input->eof) { // error while waiting
                   fprintf(stderr, "reader queue_add: bug encountered\n");
                   exit(1);
               }
@@ -182,4 +182,10 @@ reader_destroy(reader_t *r)
       }
   }
   free(r);
+}
+
+void
+reader_reset(reader_t *r)
+{
+    r->is_done = r->is_closed = 0;
 }

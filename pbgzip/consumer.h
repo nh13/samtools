@@ -28,4 +28,7 @@ consumer_run(void *arg);
 void
 consumer_destroy(consumer_t *c);
 
+void
+consumer_reset(consumer_t *c);
+
 #endif
