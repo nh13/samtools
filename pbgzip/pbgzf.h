@@ -57,6 +57,7 @@ extern "C" {
 
 #define PBGZF_QUEUE_SIZE 100
 #define PBGZF_BLOCKS_POOL_NUM 100
+//#define PBGZF_USE_LOCAL_POOLS 
 
 /*
  * Open an existing file descriptor for reading or writing.

@@ -10,8 +10,6 @@
 #include "pbgzf.h"
 #include "writer.h"
 
-//#define WRITER_USE_POOL
-
 writer_t*
 writer_init(int fd, queue_t *output, uint8_t compress, int32_t compress_level, block_pool_t *pool)
 {
@@ -80,7 +78,7 @@ writer_run(void *arg)
   //fprintf(stderr, "writer starting w->output->n=%d\n", w->output->n);
   
   while(!w->is_done) {
-#ifdef WRITER_USE_POOL
+#ifdef PBGZF_USE_LOCAL_POOLS
       while(w->pool_local->n < w->pool_local->m) { // more to read from the output queue
           wait = (0 == w->pool_local->n) ? 1 : 0;
           b = queue_get(w->output, wait);

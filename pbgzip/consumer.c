@@ -13,8 +13,6 @@
 #include "pbgzf.h"
 #include "consumer.h"
 
-//#define CONSUMER_USE_POOL
-
 consumer_t*
 consumer_init(queue_t *input,
               queue_t *output,
@@ -204,7 +202,7 @@ consumer_run(void *arg)
   //fprintf(stderr, "consumer start pool_out->n=%d\n", pool_out->n);
 
   while(1) {
-#ifdef CONSUMER_USE_POOL
+#ifdef PBGZF_USE_LOCAL_POOLS
       // get block(s)
       while(pool_in->n < pool_in->m) { // more to read in
           b = queue_get(c->input, (0 == pool_in->n && 0 == pool_out->n) ? 1 : 0); // NB: only wait if the pools are empty

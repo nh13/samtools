@@ -13,8 +13,6 @@
 
 static const int WINDOW_SIZE = MAX_BLOCK_SIZE;
 
-#define READER_USE_POOL
-
 reader_t*
 reader_init(int fd, queue_t *input, uint8_t compress, block_pool_t *pool)
 {
@@ -107,7 +105,7 @@ reader_run(void *arg)
   pool = block_pool_init2(PBGZF_BLOCKS_POOL_NUM);
 
   while(!r->is_done) {
-#ifdef READER_USE_POOL
+#ifdef PBGZF_USE_LOCAL_POOLS
       // read block
       while(pool->n < pool->m) {
           if(NULL == r->pool || NULL == (b = block_pool_get(r->pool))) {
