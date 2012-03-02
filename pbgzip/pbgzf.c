@@ -289,13 +289,14 @@ PBGZF* pbgzf_open(const char* path, const char* __restrict mode)
       fd = open(path, O_RDONLY);
 #endif
   }
-  else { // read from a compressed file
+  else { // write to a compressed file
 #ifdef _WIN32
-      fd = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_BINARY); 
+      fd = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_BINARY, 0666); 
 #else
-      fd = open(path, O_WRONLY | O_CREAT | O_TRUNC); 
+      fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0666); 
 #endif
   }
+  if(-1 == fd) return NULL;
   return pbgzf_fdopen(fd, mode);
 }
 
