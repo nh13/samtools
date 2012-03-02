@@ -198,11 +198,21 @@ pbgzf_run(PBGZF *fp)
 static void
 pbgzf_join(PBGZF *fp)
 {
-  // join
+  // join producer
   if(NULL != fp->p) producer_join(fp->p);
   else if(QUEUE_STATE_OK == fp->input->state) fp->input->state = QUEUE_STATE_FLUSH;
+
+  // wake, just in case
+  queue_wake_all(fp->input);
+
+  // join the consumers
   if(NULL != fp->c) consumers_join(fp->c);
   else if(QUEUE_STATE_OK == fp->output->state) fp->output->state = QUEUE_STATE_FLUSH;
+
+  // wake just in case
+  queue_wake_all(fp->output);
+
+  // join the outputter
   if(NULL != fp->o) outputter_join(fp->o);
 }
 
@@ -500,20 +510,26 @@ pbgzf_flush_aux(PBGZF* fp, int32_t restart)
   }
 
   // flush
-  fp->block->block_length = fp->block->block_offset;
-  if(!queue_add(fp->input, fp->block, 1)) {
-      fprintf(stderr, "pbgzf_flush_aux queue_add: bug encountered\n");
-      exit(1);
+  if(0 < fp->block->block_offset) {
+      fp->block->block_length = fp->block->block_offset;
+      if(!queue_add(fp->input, fp->block, 1)) {
+          fprintf(stderr, "pbgzf_flush_aux queue_add: bug encountered\n");
+          exit(1);
+      }
+      fp->block = NULL;
+
+      // wait until the input is empty
+      queue_wait_until_empty(fp->input);
+
+      // reset block
+      fp->block = block_init();
+      fp->block_offset = 0;
+      fp->block->block_length = MAX_BLOCK_SIZE;
   }
-  fp->block = NULL;
-
-  // wait until the input is empty
-  queue_wait_until_empty(fp->input);
-
-  // reset block
-  fp->block = block_init();
-  fp->block_offset = 0;
-  fp->block->block_length = MAX_BLOCK_SIZE;
+  else {
+      // wait until the input is empty
+      queue_wait_until_empty(fp->input);
+  }
 
   // close the input queue 
   queue_close(fp->input);
@@ -563,17 +579,19 @@ pbgzf_flush_try(PBGZF *fp, int size)
       }
 
       // flush
-      fp->block->block_length = fp->block->block_offset;
-      if(!queue_add(fp->input, fp->block, 1)) {
-          fprintf(stderr, "pbgzf_flush_try queue_add: bug encountered\n");
-          exit(1);
-      }
-      fp->block = NULL;
+      if(0 < fp->block->block_offset) {
+          fp->block->block_length = fp->block->block_offset;
+          if(!queue_add(fp->input, fp->block, 1)) {
+              fprintf(stderr, "pbgzf_flush_try queue_add: bug encountered\n");
+              exit(1);
+          }
+          fp->block = NULL;
 
-      // reset block
-      fp->block = block_init();
-      fp->block_offset = 0;
-      fp->block->block_length = MAX_BLOCK_SIZE;
+          // reset block
+          fp->block = block_init();
+          fp->block_offset = 0;
+          fp->block->block_length = MAX_BLOCK_SIZE;
+      }
   }
   return -1;
 }

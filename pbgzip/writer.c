@@ -90,7 +90,7 @@ writer_run(void *arg)
                       fprintf(stderr, "writer queue_get: bug encountered\n");
                       exit(1);
                   }
-                  else if(QUEUE_STATE_EOF == w->output->state) {
+                  else if(QUEUE_STATE_EOF == w->output->state || 0 == w->output->num_adders) {
                       break;
                   }
                   else {
@@ -110,7 +110,7 @@ writer_run(void *arg)
       }
       //fprintf(stderr, "writer: read from output w->pool_local->n=%d %d\n", w->pool_local->n, w->pool_local->m);
 
-      if(0 == w->pool_local->n && QUEUE_STATE_EOF == w->output->state) {
+      if(0 == w->pool_local->n && (QUEUE_STATE_EOF == w->output->state || 0 == w->output->num_adders)) {
           break;
       }
 
@@ -147,7 +147,7 @@ writer_run(void *arg)
                   fprintf(stderr, "writer queue_get: bug encountered\n");
                   exit(1);
               }
-              else if(QUEUE_STATE_EOF == w->output->state) {
+              else if(QUEUE_STATE_EOF == w->output->state || 0 == w->output->num_adders) {
                   break;
               }
               else {
