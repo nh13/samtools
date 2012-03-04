@@ -247,7 +247,7 @@ consumer_run(void *arg)
                   exit(1);
               }
           }
-          else {
+          else if(1 == c->compress) {
               if((b->block_length = consumer_deflate_block(c, b)) < 0) {
                   fprintf(stderr, "Error decompressing\n");
                   exit(1);
@@ -269,7 +269,7 @@ consumer_run(void *arg)
           // NB: only wait if the pools are full
           wait = (pool_in->m == pool_in->n && pool_out->m == pool_out->n) ? 1 : 0;
           if(!queue_add(c->output, b, wait)) {
-              if(1 == wait) {
+              if(1 == wait && QUEUE_STATE_EOF != c->output->state) {
                   fprintf(stderr, "consumer queue_add: bug encountered\n");
                   exit(1);
               }
@@ -309,7 +309,7 @@ consumer_run(void *arg)
               exit(1);
           }
       }
-      else {
+      else if(1 == c->compress) {
           if((b->block_length = consumer_deflate_block(c, b)) < 0) {
               fprintf(stderr, "Error decompressing\n");
               exit(1);
@@ -319,8 +319,13 @@ consumer_run(void *arg)
       // put back a block
       wait = 1;
       if(!queue_add(c->output, b, wait)) {
-          fprintf(stderr, "consumer queue_add: bug encountered\n");
-          exit(1);
+		  if(1 == wait && QUEUE_STATE_EOF != c->output->state) {
+			  fprintf(stderr, "consumer queue_add: bug encountered\n");
+			  exit(1);
+		  }
+		  else {
+			  break;
+		  }
       }
       b = NULL;
       c->n++;

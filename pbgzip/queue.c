@@ -16,6 +16,14 @@ queue_close_nolock(queue_t *q)
   pthread_cond_broadcast(q->not_empty);
 }
 
+static void
+queue_signal(queue_t *q)
+{
+  if(q->n < q->mem) pthread_cond_signal(q->not_full);
+  if(0 == q->n) pthread_cond_signal(q->is_empty);
+  if(0 < q->n) pthread_cond_signal(q->not_empty);
+}
+
 queue_t*
 queue_init(int32_t capacity, int8_t ordered, int32_t num_adders, int32_t num_getters)
 {
@@ -81,6 +89,7 @@ queue_add(queue_t *q, block_t *b, int8_t wait)
       }
       else {
           if(0 == q->num_getters) queue_close_nolock(q);
+		  queue_signal(q);
           safe_mutex_unlock(q->mut);
           return 0;
       }
@@ -95,6 +104,7 @@ queue_add(queue_t *q, block_t *b, int8_t wait)
           }
           else {
               if(0 == q->num_getters) queue_close_nolock(q);
+			  queue_signal(q);
               safe_mutex_unlock(q->mut);
               return 0;
           }
@@ -108,7 +118,7 @@ queue_add(queue_t *q, block_t *b, int8_t wait)
       if(q->tail == q->mem) q->tail = 0;
   }
   q->n++;
-  pthread_cond_signal(q->not_empty);
+  queue_signal(q);
   safe_mutex_unlock(q->mut);
   return 1;
 }
@@ -137,6 +147,7 @@ queue_get(queue_t *q, int8_t wait)
       }
       else {
           if(0 == q->num_adders && 0 == q->n) queue_close_nolock(q); // close the queue
+		  queue_signal(q);
           safe_mutex_unlock(q->mut);
           return NULL;
       }
@@ -152,6 +163,7 @@ queue_get(queue_t *q, int8_t wait)
           }
           else {
               if(0 == q->num_adders && 0 == q->n) queue_close_nolock(q); // close the queue
+			  queue_signal(q);
               safe_mutex_unlock(q->mut);
               return NULL;
           }
@@ -162,8 +174,7 @@ queue_get(queue_t *q, int8_t wait)
   if(q->head == q->mem) q->head = 0;
   if(q->ordered) q->id++;
   q->n--;
-  pthread_cond_signal(q->not_full);
-  if(0 == q->n) pthread_cond_signal(q->is_empty);
+  queue_signal(q);
   safe_mutex_unlock(q->mut);
   return b;
 }
