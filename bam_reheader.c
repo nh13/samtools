@@ -66,6 +66,9 @@ int bam_reheader(const char *fn_in, const bam_header_t *h, int fd)
 #endif
 	free(buf);
 	bam_close(out);
+#ifdef _PBGZF_USE
+	bgzf_close(fp_bgzf_in);
+#endif
 	bam_close(in);
 	return 0;
 }
