@@ -24,16 +24,18 @@ int bam_reheader(bamFile in, const bam_header_t *h, int fd)
 	}
         */
 #ifdef _PBGZF_USE
-        BGZF *fp_bgzf = in->r->fp_bgzf;
+	BGZF *fp_bgzf_in = in->r->fp_bgzf;
+	BGZF *fp_bgzf_out = fp->w->fp_bgzf;
 #else
-        BGZF *fp_bgzf = fp;
+	BGZF *fp_bgzf_in = in;
+	BGZF *fp_bgzf_out = fp;
 #endif
 #ifdef _USE_KNETFILE
-	while ((len = knet_read(fp_bgzf->x.fpr, buf, BUF_SIZE)) > 0)
-		fwrite(buf, 1, len, fp_bgzf->x.fpw);
+	while ((len = knet_read(fp_bgzf_in->x.fpr, buf, BUF_SIZE)) > 0)
+		fwrite(buf, 1, len, fp_bgzf_out->x.fpw);
 #else
-	while (!feof(fp_bgzf->file) && (len = fread(buf, 1, BUF_SIZE, fp_bgzf->file)) > 0)
-		fwrite(buf, 1, len, fp_bgzf->file);
+	while (!feof(fp_bgzf_in->file) && (len = fread(buf, 1, BUF_SIZE, fp_bgzf_in->file)) > 0)
+		fwrite(buf, 1, len, fp_bgzf_out->file);
 #endif
 	free(buf);
 	bam_close(fp);
