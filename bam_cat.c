@@ -170,7 +170,6 @@ int bam_cat(int nfn, char * const *fn, const bam_header_t *h, const char* outbam
 		bgzf_close(fp_bgzf_in);
 #endif
         bam_close(in);
-#endif
     }
     free(buf);
     bam_close(out);
