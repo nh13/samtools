@@ -1,6 +1,8 @@
 #ifndef QUEUE_H_
 #define QUEUE_H_
 
+//#define QUEUE_DEBUG
+
 enum {
     QUEUE_STATE_OK = 0,
     QUEUE_STATE_EOF = 1,
@@ -24,6 +26,9 @@ typedef struct {
     pthread_cond_t *is_empty;
     pthread_cond_t *not_flush;
     int8_t state;
+#ifdef QUEUE_DEBUG
+    int32_t num_waiting[4];
+#endif
 } queue_t;
 
 queue_t*
@@ -34,6 +39,9 @@ queue_add(queue_t *q, block_t *b, int8_t wait);
 
 block_t*
 queue_get(queue_t *q, int8_t wait);
+
+void
+queue_signal(queue_t *q);
 
 // TODO
 /*

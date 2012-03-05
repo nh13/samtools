@@ -205,7 +205,7 @@ pbgzf_join(PBGZF *fp)
   // wake, just in case
   queue_wake_all(fp->input);
   if('r' == fp->open_mode) {
-	  queue_wake_all(fp->output);
+      queue_wake_all(fp->output);
   }
 
   // join the consumers
@@ -246,8 +246,9 @@ pbgzf_init(int fd, const char* __restrict mode)
 
   // queues
   fp->open_mode = open_mode;
+  //fp->num_threads = 1;
   fp->num_threads = detect_cpus(); // TODO: do we want to use all the threads?
-  //fprintf(stderr, "%s with %d threads.\n", ('r' == open_mode) ? "Reading" : "Writing", fp->num_threads);
+  fprintf(stderr, "%s with %d threads.\n", ('r' == open_mode) ? "Reading" : "Writing", fp->num_threads);
   fp->queue_size = PBGZF_QUEUE_SIZE;
   fp->input = queue_init(fp->queue_size, 0, 1, fp->num_threads);
   fp->output = queue_init(fp->queue_size, 1, fp->num_threads, 1);
@@ -264,17 +265,17 @@ pbgzf_init(int fd, const char* __restrict mode)
       fp->o = outputter_init(fp->w);
   }
   else { // read from a compressed file
-	  if(strchr(mode, 'u')) {// hidden functionality
-		  fp->r = reader_init(fd, fp->input, 1, fp->pool); // read the uncompressed file
-		  fp->p = producer_init(fp->r);
-		  fp->c = consumers_init(fp->num_threads, fp->input, fp->output, fp->r, 2, compress_level); // do nothing
-	  }
-	  else {
-		  fp->r = reader_init(fd, fp->input, 0, fp->pool); // read the compressed file
-		  fp->p = producer_init(fp->r);
-		  fp->c = consumers_init(fp->num_threads, fp->input, fp->output, fp->r, 0, compress_level); // inflate
-		  fp->eof_ok = bgzf_check_EOF(fp->r->fp_bgzf);
-	  }
+      if(strchr(mode, 'u')) {// hidden functionality
+          fp->r = reader_init(fd, fp->input, 1, fp->pool); // read the uncompressed file
+          fp->p = producer_init(fp->r);
+          fp->c = consumers_init(fp->num_threads, fp->input, fp->output, fp->r, 2, compress_level); // do nothing
+      }
+      else {
+          fp->r = reader_init(fd, fp->input, 0, fp->pool); // read the compressed file
+          fp->p = producer_init(fp->r);
+          fp->c = consumers_init(fp->num_threads, fp->input, fp->output, fp->r, 0, compress_level); // inflate
+          fp->eof_ok = bgzf_check_EOF(fp->r->fp_bgzf);
+      }
       fp->w = NULL;
       fp->o = NULL; // do not write
   }
@@ -620,10 +621,10 @@ pbgzf_close(PBGZF* fp)
       // shut down the reader, regardless of where it is reading
       fp->r->is_done = 1;
 
-	  // shut down the consumers, regardless of what they are consuming
-	  for(i=0;i<fp->c->n;i++) {
-		  fp->c->c[i]->is_done = 1;
-	  }
+      // shut down the consumers, regardless of what they are consuming
+      for(i=0;i<fp->c->n;i++) {
+          fp->c->c[i]->is_done = 1;
+      }
   
       // close the input queue
       queue_close(fp->input); // NB: consumers should shut down when the input queue has EOF set
