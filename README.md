@@ -2,6 +2,7 @@
 The official SAMtools repository can be found at: http://samtools.sourceforge.net/ 
 
 ## Major fixes:
+	- SAM/BAM reader is now multi-threaded, significantly speeding up reading and writing of BAM files.
     - added "samtools qa" command, to compute the mean and median coverage, as well a histogram 
     from 1 to N (defined by param) containing the number of bases covered a maximum of 1X, 2X...NX. 
     Furthermore, "other" information is also available in the output file, namely:

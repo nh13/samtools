@@ -68,6 +68,7 @@ block_pool_shift(block_pool_t *pool)
   fprintf(stderr, "SHIFTING head=%d n=%d m=%d\n",
           pool->head, pool->n, pool->m);
           */
+  if(0 == pool->head) return;
   for(i=0;i<pool->n;i++) {
       pool->blocks[i] = pool->blocks[i+pool->head];
       pool->blocks[i+pool->head] = NULL;
