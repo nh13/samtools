@@ -175,6 +175,7 @@ reader_run(void *arg)
       //fprintf(stderr, "r->output->n=%d\n", r->input->n);
 #else
       // read block
+      //fprintf(stderr, "Reader #%d read block\n", 0);
       b = block_init(); 
       if(0 == r->compress) {
           if(reader_read_block(r->fp_bgzf, b) < 0) {
@@ -195,6 +196,7 @@ reader_run(void *arg)
       }
 
       // add to the queue
+      //fprintf(stderr, "Reader #%d add to queue\n", 0);
       wait = 1;
       if(0 == queue_add(r->input, b, wait)) {
           if(1 == wait) {
@@ -216,6 +218,7 @@ reader_run(void *arg)
       }
       b = NULL;
       n++;
+      //fprintf(stderr, "reader read %llu blocks\n", n);
 #endif
   }
   
@@ -224,6 +227,10 @@ reader_run(void *arg)
 
   r->is_done = 1;
   r->input->num_adders--;
+
+  // wake the input queue
+  r->input->state = QUEUE_STATE_EOF;
+  queue_wake_all(r->input);
 
   block_pool_destroy(pool);
 

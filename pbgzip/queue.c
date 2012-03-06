@@ -16,6 +16,14 @@ queue_close_nolock(queue_t *q)
   pthread_cond_broadcast(q->not_empty);
 }
 
+void
+queue_signal(queue_t *q)
+{
+  if(q->n < q->mem) pthread_cond_signal(q->not_full);
+  if(0 == q->n) pthread_cond_signal(q->is_empty);
+  if(0 < q->n) pthread_cond_signal(q->not_empty);
+}
+
 queue_t*
 queue_init(int32_t capacity, int8_t ordered, int32_t num_adders, int32_t num_getters)
 {
@@ -33,6 +41,12 @@ queue_init(int32_t capacity, int8_t ordered, int32_t num_adders, int32_t num_get
   q->state = QUEUE_STATE_OK;
   q->num_adders = num_adders;
   q->num_getters = num_getters;
+#ifdef QUEUE_DEBUG
+  q->num_waiting[0] = 0;
+  q->num_waiting[1] = 0;
+  q->num_waiting[2] = 0;
+  q->num_waiting[3] = 0;
+#endif
     
   if(0 != pthread_mutex_init(q->mut, NULL)) {
       fprintf(stderr, "Could not create mutex\n");
@@ -62,6 +76,7 @@ int8_t
 queue_add(queue_t *q, block_t *b, int8_t wait)
 {
   safe_mutex_lock(q->mut);
+  queue_signal(q);
   if(0 == q->num_getters) {
       queue_close_nolock(q);
       safe_mutex_unlock(q->mut);
@@ -74,13 +89,20 @@ queue_add(queue_t *q, block_t *b, int8_t wait)
   }
   while(q->n == q->mem) {
       if(wait && QUEUE_STATE_OK == q->state) {
+#ifdef QUEUE_DEBUG
+          q->num_waiting[0]++;
+#endif
           if(0 != pthread_cond_wait(q->not_full, q->mut)) {
               fprintf(stderr, "Could not condition wait\n");
               exit(1);
           }
+#ifdef QUEUE_DEBUG
+          q->num_waiting[0]--;
+#endif
       }
       else {
           if(0 == q->num_getters) queue_close_nolock(q);
+          queue_signal(q);
           safe_mutex_unlock(q->mut);
           return 0;
       }
@@ -88,16 +110,28 @@ queue_add(queue_t *q, block_t *b, int8_t wait)
   if(1 == q->ordered) {
       while(q->id - q->n + q->mem <= b->id) {
           if(wait && QUEUE_STATE_OK == q->state) {
+#ifdef QUEUE_DEBUG
+              q->num_waiting[1]++;
+#endif
+              queue_signal(q); // NB: important to signal in case a getter may open this slot 
               if(0 != pthread_cond_wait(q->not_full, q->mut)) {
                   fprintf(stderr, "Could not condition wait\n");
                   exit(1);
               }
+#ifdef QUEUE_DEBUG
+              q->num_waiting[1]--;
+#endif
           }
           else {
               if(0 == q->num_getters) queue_close_nolock(q);
+              queue_signal(q);
               safe_mutex_unlock(q->mut);
               return 0;
           }
+      }
+      if(NULL != q->queue[b->id % q->mem]) {
+          fprintf(stderr, "Overwritting an existing block\n");
+          exit(1);
       }
       q->queue[b->id % q->mem] = b;
   }
@@ -108,7 +142,7 @@ queue_add(queue_t *q, block_t *b, int8_t wait)
       if(q->tail == q->mem) q->tail = 0;
   }
   q->n++;
-  pthread_cond_signal(q->not_empty);
+  queue_signal(q);
   safe_mutex_unlock(q->mut);
   return 1;
 }
@@ -118,6 +152,7 @@ queue_get(queue_t *q, int8_t wait)
 {
   block_t *b = NULL;
   safe_mutex_lock(q->mut);
+  queue_signal(q);
   if(0 == q->num_getters) { // then why are you getting
       queue_close_nolock(q); // close the queue
       safe_mutex_unlock(q->mut);
@@ -130,13 +165,20 @@ queue_get(queue_t *q, int8_t wait)
   }
   while(0 == q->n) {
       if(1 == wait && QUEUE_STATE_OK == q->state) {
+#ifdef QUEUE_DEBUG
+          q->num_waiting[2]++;
+#endif
           if(0 != pthread_cond_wait(q->not_empty, q->mut)) {
               fprintf(stderr, "Could not condition wait\n");
               exit(1);
           }
+#ifdef QUEUE_DEBUG
+          q->num_waiting[2]--;
+#endif
       }
       else {
           if(0 == q->num_adders && 0 == q->n) queue_close_nolock(q); // close the queue
+          queue_signal(q);
           safe_mutex_unlock(q->mut);
           return NULL;
       }
@@ -145,13 +187,21 @@ queue_get(queue_t *q, int8_t wait)
   if(q->ordered) {
       while(NULL == b) {
           if(1 == wait && QUEUE_STATE_OK == q->state) {
+#ifdef QUEUE_DEBUG
+              q->num_waiting[3]++;
+#endif
+              queue_signal(q); // NB: important to signal as an adder may add to this slot
               if(0 != pthread_cond_wait(q->not_empty, q->mut)) {
                   fprintf(stderr, "Could not condition wait\n");
                   exit(1);
               }
+#ifdef QUEUE_DEBUG
+              q->num_waiting[3]--;
+#endif
           }
           else {
               if(0 == q->num_adders && 0 == q->n) queue_close_nolock(q); // close the queue
+              queue_signal(q);
               safe_mutex_unlock(q->mut);
               return NULL;
           }
@@ -162,8 +212,7 @@ queue_get(queue_t *q, int8_t wait)
   if(q->head == q->mem) q->head = 0;
   if(q->ordered) q->id++;
   q->n--;
-  pthread_cond_signal(q->not_full);
-  if(0 == q->n) pthread_cond_signal(q->is_empty);
+  queue_signal(q);
   safe_mutex_unlock(q->mut);
   return b;
 }

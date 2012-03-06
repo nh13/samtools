@@ -247,7 +247,7 @@ consumer_run(void *arg)
                   exit(1);
               }
           }
-          else {
+          else if(1 == c->compress) {
               if((b->block_length = consumer_deflate_block(c, b)) < 0) {
                   fprintf(stderr, "Error decompressing\n");
                   exit(1);
@@ -269,7 +269,7 @@ consumer_run(void *arg)
           // NB: only wait if the pools are full
           wait = (pool_in->m == pool_in->n && pool_out->m == pool_out->n) ? 1 : 0;
           if(!queue_add(c->output, b, wait)) {
-              if(1 == wait) {
+              if(1 == wait && QUEUE_STATE_EOF != c->output->state) {
                   fprintf(stderr, "consumer queue_add: bug encountered\n");
                   exit(1);
               }
@@ -286,6 +286,7 @@ consumer_run(void *arg)
       //fprintf(stderr, "consumer output c->output->n=%d\n", c->output->n);
 #else
       // get block
+      //fprintf(stderr, "Consumer #%d get block\n", c->cid);
       b = queue_get(c->input, 1);
       if(NULL == b) {
           if(QUEUE_STATE_FLUSH == c->input->state) {
@@ -303,13 +304,14 @@ consumer_run(void *arg)
       }
 
       // inflate/deflate
+      //fprintf(stderr, "Consumer #%d inflate/deflate\n", c->cid);
       if(0 == c->compress) {
           if((b->block_length = consumer_inflate_block(c, b)) < 0) {
               fprintf(stderr, "Error decompressing\n");
               exit(1);
           }
       }
-      else {
+      else if(1 == c->compress) {
           if((b->block_length = consumer_deflate_block(c, b)) < 0) {
               fprintf(stderr, "Error decompressing\n");
               exit(1);
@@ -317,20 +319,37 @@ consumer_run(void *arg)
       }
 
       // put back a block
+      //fprintf(stderr, "Consumer #%d add block\n", c->cid);
       wait = 1;
       if(!queue_add(c->output, b, wait)) {
-          fprintf(stderr, "consumer queue_add: bug encountered\n");
-          exit(1);
+          if(1 == wait && QUEUE_STATE_EOF != c->output->state) {
+              fprintf(stderr, "consumer queue_add: bug encountered\n");
+              exit(1);
+          }
+          else {
+              break;
+          }
       }
       b = NULL;
       c->n++;
 #endif
+      
+      /*
+      fprintf(stderr, "consumer #%d c->input=[%d/%d,%d] c->output=[%d/%d,%d]\n",
+              c->cid,
+              c->input->n, c->input->mem, c->input->state,
+              c->output->n, c->output->mem, c->output->state);
+      */
   }
 
   c->is_done = 1;
   c->input->num_getters--;
   c->output->num_adders--;
-  //fprintf(stderr, "consumer #%d processed %llu blocks\n", c->cid, c->n);
+
+  //fprintf(stderr, "consumer #%d done processed %llu blocks\n", c->cid, c->n);
+  // explicitly wake all
+  queue_wake_all(c->input);
+  queue_wake_all(c->output);
 
   // destroy the pool
   block_pool_destroy(pool_in);

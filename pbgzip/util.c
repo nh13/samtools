@@ -1,6 +1,8 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <pthread.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #if defined(__APPLE__)
 #include <sys/sysctl.h>
 #elif defined(_SC_NPROCESSORS_ONLN)
@@ -92,6 +94,8 @@ detect_cpus()
   SYSTEM_INFO si;
   GetSystemInfo(&si);
   ncpu = si.dwNumberOfProcessors;
+#else
+#warning "CPU autodection is disabled"
 #endif
 
   // Ensure we have at least one processor to use
