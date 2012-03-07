@@ -205,6 +205,8 @@ reader_run(void *arg)
                   exit(1);
               }
               else if(QUEUE_STATE_EOF == r->input->state) { // EOF, quit
+                  block_destroy(b);
+                  b = NULL;
                   break;
               }
               else {
@@ -213,6 +215,8 @@ reader_run(void *arg)
               }
           }
           else {
+              block_destroy(b);
+              b = NULL;
               break;
           }
       }
