@@ -85,9 +85,23 @@ main(int argc, char *argv[])
       f_dst = fileno(stdout);
   }
   else {
-      char *name = strdup(argv[optind]);
-      name[strlen(name) - 3] = '\0';
-      f_dst = write_open(name, is_forced);
+      char *name;
+      if(1 == compress) {
+          char *name = malloc(strlen(argv[optind]) + 5);
+          strcpy(name, argv[optind]);
+          strcat(name, ".gz");
+          f_dst = write_open(name, is_forced);
+          if (f_dst < 0) return 1;
+      }
+      else {
+          char *name = strdup(argv[optind]);
+          if(strlen(name) < 3 || 0 != strcmp(name + (strlen(name)-3), ".gz")) {
+              fprintf(stderr, "Error: the input file did not end in .gz");
+              return 1;
+          }
+          name[strlen(name) - 3] = '\0';
+          f_dst = write_open(name, is_forced);
+      }
       free(name);
   }
 
