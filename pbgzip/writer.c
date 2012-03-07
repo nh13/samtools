@@ -169,6 +169,8 @@ writer_run(void *arg)
               exit(1);
           }
       }
+      block_destroy(b);
+      b = NULL;
       n++;
 #endif
   }
