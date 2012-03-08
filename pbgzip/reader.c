@@ -16,7 +16,7 @@ static const int WINDOW_SIZE = MAX_BLOCK_SIZE;
 reader_t*
 reader_init(int fd, queue_t *input, uint8_t compress, block_pool_t *pool)
 {
-  reader_t *r= calloc(1, sizeof(reader_t));
+  reader_t *r = calloc(1, sizeof(reader_t));
 
   if(0 == compress) {
       r->fp_bgzf = bgzf_fdopen(fd, "r");
@@ -224,6 +224,8 @@ reader_run(void *arg)
       //fprintf(stderr, "reader read %llu blocks\n", n);
 #endif
   }
+  block_destroy(b);
+  b = NULL;
   
   //fprintf(stderr, "reader read %llu blocks\n", n);
   //fprintf(stderr, "r->input->n=%d\n", r->input->n);

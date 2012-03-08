@@ -85,12 +85,12 @@ main(int argc, char *argv[])
       f_dst = fileno(stdout);
   }
   else {
-      char *name;
       if(1 == compress) {
           char *name = malloc(strlen(argv[optind]) + 5);
           strcpy(name, argv[optind]);
           strcat(name, ".gz");
           f_dst = write_open(name, is_forced);
+          free(name);
           if (f_dst < 0) return 1;
       }
       else {
@@ -101,8 +101,8 @@ main(int argc, char *argv[])
           }
           name[strlen(name) - 3] = '\0';
           f_dst = write_open(name, is_forced);
+          free(name);
       }
-      free(name);
   }
 
   if ((f_src = open(argv[optind], O_RDONLY)) < 0) {
