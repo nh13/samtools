@@ -90,7 +90,6 @@ reader_read_block(BGZF* fp, block_t *b)
   return 0;
 }
 
-
 void*
 reader_run(void *arg)
 {
