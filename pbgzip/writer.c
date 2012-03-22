@@ -178,11 +178,8 @@ writer_run(void *arg)
   w->is_done = 1;
   //fprintf(stderr, "writer written %llu blocks\n", n);
 
-  w->output->num_getters--;
-
-  // explicitly wake all
-  queue_wake_all(w->output);
-  // no need to signal, no one depends on me :(
+  // NB: will wake all
+  queue_remove_getter(w->output);
 
   return arg;
 }

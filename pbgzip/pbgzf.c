@@ -127,6 +127,7 @@ producer_join(producer_t *p)
       exit(1);
   }
   // close the input queue
+  // TODO: sync?
   if(p->r->input->state == QUEUE_STATE_OK) p->r->input->state = QUEUE_STATE_FLUSH;
 }
 
@@ -323,10 +324,10 @@ pbgzf_read(PBGZF* fp, void* data, int length)
   }
   if(fp->eof == 1) return 0;
 
-  int bytes_read = 0;
+  int bytes_read = 0, available = 0;
   bgzf_byte_t* output = data;
   while(bytes_read < length) {
-      int copy_length, available;
+      int copy_length;
 
       available = (NULL == fp->block) ? 0 : (fp->block->block_length - fp->block->block_offset);
       if(0 == available) {
@@ -350,14 +351,17 @@ pbgzf_read(PBGZF* fp, void* data, int length)
       bytes_read += copy_length;
   }
   // Try to get a new block and reset address/offset
-  if (NULL == fp->block || fp->block->block_offset == fp->block->block_length) {
+  if(NULL == fp->block || fp->block->block_offset == fp->block->block_length) {
       if(NULL != fp->block) {
           block_destroy(fp->block);
+          fp->block = NULL;
           fp->n_blocks++;
       }
-      //fp->block = queue_get(fp->output, 1-fp->r->is_done);
-      // NB: do not wait if there will be no more data
-      fp->block = queue_get(fp->output, (QUEUE_STATE_EOF == fp->output->state) ? 0 : 1);
+      if(0 < available) {
+          //fp->block = queue_get(fp->output, 1-fp->r->is_done);
+          // NB: do not wait if there will be no more data
+          fp->block = queue_get(fp->output, (QUEUE_STATE_EOF == fp->output->state) ? 0 : 1);
+      } // TODO: otherwise EOF?
       if(NULL == fp->block) {
           fp->block_offset = 0;
 #ifdef _USE_KNETFILE

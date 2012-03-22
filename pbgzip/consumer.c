@@ -343,11 +343,15 @@ consumer_run(void *arg)
   }
 
   c->is_done = 1;
-  c->input->num_getters--;
-  c->output->num_adders--;
+  // NB: queue handles waking...
+  queue_remove_getter(c->input);
+  queue_remove_adder(c->output);
 
   //fprintf(stderr, "consumer #%d done processed %llu blocks\n", c->cid, c->n);
-  // explicitly wake all
+  //queue_print_status(c->input, stderr);
+  //queue_print_status(c->output, stderr);
+
+  // TODO: why do you need to wake all here?
   queue_wake_all(c->input);
   queue_wake_all(c->output);
 
