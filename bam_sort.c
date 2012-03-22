@@ -583,6 +583,8 @@ int bam_sort(int argc, char *argv[])
                 fprintf(stderr, "                    1: introsort\n");
                 fprintf(stderr, "                    2: combsort\n");
                 fprintf(stderr, "                    3: heapsort\n");
+		fprintf(stderr, "         -@ INT    number of sorting and compression threads [1]\n");
+		fprintf(stderr, "         -m INT    max memory per thread; suffix K/M/G recognized [768M]\n");
 		fprintf(stderr, "\n");
 		return 1;
 	}
