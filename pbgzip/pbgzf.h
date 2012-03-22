@@ -60,6 +60,15 @@ extern "C" {
 //#define PBGZF_USE_LOCAL_POOLS 
 
 /*
+ * Sets the number of consumer threads per file handle.  If set to
+ * X, the numebr of threads will be X+1, due to the need to have a 
+ * single reader or writer thread in addition to the consumer 
+ * thread(s).
+ */
+void
+pbgzf_set_num_threads_per(int32_t n);
+
+/*
  * Open an existing file descriptor for reading or writing.
  * Mode must be either "r" or "w".
  * A subsequent pbgzf_close will not close the file descriptor.

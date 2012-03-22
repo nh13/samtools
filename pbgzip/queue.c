@@ -77,8 +77,8 @@ queue_add(queue_t *q, block_t *b, int8_t wait)
 {
   safe_mutex_lock(q->mut);
   queue_signal(q);
-  if(0 == q->num_getters) {
-      queue_close_nolock(q);
+  if(0 == q->num_getters) { // no more getters
+      queue_close_nolock(q); // close
       safe_mutex_unlock(q->mut);
       return 0;
   }

@@ -19,6 +19,15 @@
 #include "consumer.h"
 #include "pbgzf.h"
 
+static int32_t num_threads_per_pbgzf = -1;
+
+void
+pbgzf_set_num_threads_per(int32_t n)
+{
+  fprintf(stderr, "Setting the number of threads per PBGZF file handle to %d\n", n);
+  num_threads_per_pbgzf = n;
+}
+
 static consumers_t*
 consumers_init(int32_t n, queue_t *input, queue_t *output, reader_t *reader, 
                int32_t compress, int32_t compress_level)
@@ -247,8 +256,12 @@ pbgzf_init(int fd, const char* __restrict mode)
 
   // queues
   fp->open_mode = open_mode;
-  //fp->num_threads = 1;
-  fp->num_threads = detect_cpus(); // TODO: do we want to use all the threads?
+  if(num_threads_per_pbgzf <= 0) {
+      fp->num_threads = detect_cpus(); 
+  }
+  else {
+      fp->num_threads = num_threads_per_pbgzf;
+  }
   fprintf(stderr, "%s with %d threads.\n", ('r' == open_mode) ? "Reading" : "Writing", fp->num_threads);
   fp->queue_size = PBGZF_QUEUE_SIZE;
   fp->input = queue_init(fp->queue_size, 0, 1, fp->num_threads);

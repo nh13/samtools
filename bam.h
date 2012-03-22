@@ -69,6 +69,7 @@ typedef BGZF *bamFile;
 #include "pbgzip/pbgzf.h"
 /*! @abstract BAM file handler */
 typedef PBGZF *bamFile;
+#define bam_set_num_threads_per(n) pbgzf_set_num_threads_per(n)
 #define bam_open(fn, mode) pbgzf_open(fn, mode)
 #define bam_dopen(fd, mode) pbgzf_fdopen(fd, mode)
 #define bam_close(fp) pbgzf_close(fp)

@@ -37,7 +37,7 @@ static int usage()
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Program: samtools (Tools for alignments in the SAM format)\n");
 	fprintf(stderr, "Version: %s\n\n", BAM_VERSION);
-	fprintf(stderr, "Usage:   samtools <command> [options]\n\n");
+	fprintf(stderr, "Usage:   samtools [-n INT] <command> [options]\n\n");
 	fprintf(stderr, "Command: view        SAM<->BAM conversion\n");
 	fprintf(stderr, "         sort        sort alignment file\n");
 	fprintf(stderr, "         mpileup     multi-way pileup\n");
@@ -77,6 +77,13 @@ int main(int argc, char *argv[])
 #ifdef _USE_KNETFILE
 	knet_win32_init();
 #endif
+#endif
+#ifdef _PBGZF_USE 
+        if (3 <= argc && 2 == strlen(argv[1]) && strncmp(argv[1], "-n", 2) == 0) {
+            bam_set_num_threads_per(atoi(argv[2]));
+            argv+=2;
+            argc-=2;
+        }
 #endif
 	if (argc < 2) return usage();
 	if (strcmp(argv[1], "view") == 0) return main_samview(argc-1, argv+1);
