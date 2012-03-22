@@ -47,7 +47,8 @@ pbgzip_main_usage()
   fprintf(stderr, "Options: -c        write on standard output, keep original files unchanged\n");
   fprintf(stderr, "         -d        decompress\n");
   fprintf(stderr, "         -f        overwrite files without asking\n");
-  fprintf(stderr, "         -n        number of threads [%d]\n", detect_cpus());
+  fprintf(stderr, "         -n INT    number of threads [%d]\n", detect_cpus());
+  fprintf(stderr, "         -t INT    the compress type (0 - gz, 1 - bz2) [%d]\n", 0);
   fprintf(stderr, "         -1 .. -9  the compression level [%d]\n", Z_DEFAULT_COMPRESSION);
   fprintf(stderr, "         -h        give this help\n");
   fprintf(stderr, "\n");
@@ -59,10 +60,11 @@ int
 main(int argc, char *argv[])
 {
   int opt, f_src, f_dst;
-  int32_t compress, compress_level, pstdout, is_forced, queue_size, n_threads;
+  int32_t compress, compress_level, compress_type, pstdout, is_forced, queue_size, n_threads;
 
-  compress = 1; compress_level = -1; pstdout = 0; is_forced = 0; queue_size = 1000; n_threads = detect_cpus();
-  while((opt = getopt(argc, argv, "cdhfn:q:0123456789")) >= 0){
+  compress = 1; compress_level = -1; compress_type = 0;
+  pstdout = 0; is_forced = 0; queue_size = 1000; n_threads = detect_cpus();
+  while((opt = getopt(argc, argv, "cdhfn:t:q:0123456789")) >= 0){
       if('0' <= opt && opt <= '9') {
           compress_level = opt - '0'; 
           continue;
@@ -73,6 +75,7 @@ main(int argc, char *argv[])
         case 'f': is_forced = 1; break;
         case 'q': queue_size = atoi(optarg); break;
         case 'n': n_threads = atoi(optarg); break;
+        case 't': compress_type = atoi(optarg); break;
         case 'h': 
         default:
                   return pbgzip_main_usage();
@@ -110,7 +113,7 @@ main(int argc, char *argv[])
       return 1;
   }
 
-  pbgzf_main(f_src, f_dst, compress, compress_level, queue_size, n_threads);
+  pbgzf_main(f_src, f_dst, compress, compress_level, compress_type, queue_size, n_threads);
 
   if(!pstdout) unlink(argv[optind]);
 

@@ -46,7 +46,7 @@ libbam.a:$(LOBJS)
 		$(AR) -csru $@ $(LOBJS)
 
 samtools:lib-recur $(AOBJS)
-		$(CC) $(CFLAGS) -o $@ $(AOBJS) $(LDFLAGS) libbam.a -Lbcftools -lbcf $(LIBPATH) $(LIBCURSES) -lm -lz
+		$(CC) $(CFLAGS) -o $@ $(AOBJS) $(LDFLAGS) libbam.a -Lbcftools -lbcf $(LIBPATH) $(LIBCURSES) -lm -lz -lbz2
 
 razip:razip.o razf.o $(KNETFILE_O)
 		$(CC) $(CFLAGS) -o $@ razf.o razip.o $(KNETFILE_O) -lz

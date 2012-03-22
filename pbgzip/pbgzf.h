@@ -10,6 +10,8 @@
 #include "writer.h"
 #include "util.h"
 
+#define BZ2_DEFAULT_LEVEL 9
+
 typedef struct {
     pthread_attr_t attr;
     pthread_t *threads;
@@ -137,7 +139,7 @@ void pbgzf_set_cache_size(PBGZF *fp, int cache_size);
 #endif
 
 void
-pbgzf_main(int f_src, int f_dst, int compress, int compress_level, int queue_size, int n_threads);
+pbgzf_main(int f_src, int f_dst, int compress, int compress_level, int compress_type, int queue_size, int num_threads);
 
 
 #endif

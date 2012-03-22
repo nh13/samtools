@@ -30,7 +30,7 @@ pbgzf_set_num_threads_per(int32_t n)
 
 static consumers_t*
 consumers_init(int32_t n, queue_t *input, queue_t *output, reader_t *reader, 
-               int32_t compress, int32_t compress_level)
+               int32_t compress, int32_t compress_level, int32_t compress_type)
 {
   consumers_t *c = NULL;
   int32_t i;
@@ -41,7 +41,7 @@ consumers_init(int32_t n, queue_t *input, queue_t *output, reader_t *reader,
   c->c = calloc(n, sizeof(consumer_t*));
 
   for(i=0;i<n;i++) {
-      c->c[i] = consumer_init(input, output, reader, compress, compress_level, i);
+      c->c[i] = consumer_init(input, output, reader, compress, compress_level, compress_type, i);
   }
 
   pthread_attr_init(&c->attr);
@@ -232,7 +232,7 @@ pbgzf_join(PBGZF *fp)
 static PBGZF*
 pbgzf_init(int fd, const char* __restrict mode)
 {
-  int i, compress_level = -1;
+  int i, compress_level = -1, compress_type = 0;
   char open_mode;
   PBGZF *fp = NULL;
 
@@ -250,6 +250,20 @@ pbgzf_init(int fd, const char* __restrict mode)
   }
   else {
       return NULL;
+  }
+  
+  // set type
+  if (strchr(mode, 'Z')) {
+      compress_type = 0;
+  } else if (strchr(mode, 'B')) {
+      compress_type = 1;
+      if (compress_level < 1) {
+          compress_type = 0; // switch to gz no compress mode
+          compress_level = 0;
+      }
+  }
+  else {
+      compress_type = 0;
   }
 
   fp = calloc(1, sizeof(PBGZF));
@@ -274,20 +288,20 @@ pbgzf_init(int fd, const char* __restrict mode)
   if('w' == open_mode) { // write to a compressed file
       fp->r = NULL; // do not read
       fp->p = NULL; // do not produce data
-      fp->c = consumers_init(fp->num_threads, fp->input, fp->output, fp->r, 1, compress_level); // deflate/compress
-      fp->w = writer_init(fd, fp->output, 1, compress_level, fp->pool); // write data
+      fp->c = consumers_init(fp->num_threads, fp->input, fp->output, fp->r, 1, compress_level, compress_type); // deflate/compress
+      fp->w = writer_init(fd, fp->output, 1, compress_level, compress_type, fp->pool); // write data
       fp->o = outputter_init(fp->w);
   }
   else { // read from a compressed file
       if(strchr(mode, 'u')) {// hidden functionality
           fp->r = reader_init(fd, fp->input, 1, fp->pool); // read the uncompressed file
           fp->p = producer_init(fp->r);
-          fp->c = consumers_init(fp->num_threads, fp->input, fp->output, fp->r, 2, compress_level); // do nothing
+          fp->c = consumers_init(fp->num_threads, fp->input, fp->output, fp->r, 2, compress_level, compress_type); // do nothing
       }
       else {
           fp->r = reader_init(fd, fp->input, 0, fp->pool); // read the compressed file
           fp->p = producer_init(fp->r);
-          fp->c = consumers_init(fp->num_threads, fp->input, fp->output, fp->r, 0, compress_level); // inflate
+          fp->c = consumers_init(fp->num_threads, fp->input, fp->output, fp->r, 0, compress_level, compress_type); // inflate
           fp->eof_ok = bgzf_check_EOF(fp->r->fp_bgzf);
       }
       fp->w = NULL;
@@ -680,7 +694,7 @@ void pbgzf_set_cache_size(PBGZF *fp, int cache_size)
 }
 
 void
-pbgzf_main(int f_src, int f_dst, int compress, int compress_level, int queue_size, int num_threads)
+pbgzf_main(int f_src, int f_dst, int compress, int compress_level, int compress_type, int queue_size, int num_threads)
 {
   // NB: this gives us greater control over queue size and the like
   queue_t *input = NULL;
@@ -697,8 +711,8 @@ pbgzf_main(int f_src, int f_dst, int compress, int compress_level, int queue_siz
   output = queue_init(queue_size, 1, num_threads, 1);
 
   r = reader_init(f_src, input, compress, pool);
-  w = writer_init(f_dst, output, compress, compress_level, pool);
-  c = consumers_init(num_threads, input, output, r, compress, compress_level);
+  w = writer_init(f_dst, output, compress, compress_level, compress_type, pool);
+  c = consumers_init(num_threads, input, output, r, compress, compress_level, compress_type);
   p = producer_init(r);
   o = outputter_init(w);
 
