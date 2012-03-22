@@ -22,11 +22,15 @@ writer_init(int fd, queue_t *output, uint8_t compress, int32_t compress_level, i
       }
   }
   else {
+#ifndef DISABLE_BZ2
       if (compress_type == 0) {
           compress_level = compress_level < 0? Z_DEFAULT_COMPRESSION : compress_level; // Z_DEFAULT_COMPRESSION==-1
       } else {
           compress_level = compress_level < 1? BZ2_DEFAULT_LEVEL : compress_level; 
       }
+#else
+      compress_level = compress_level < 0? Z_DEFAULT_COMPRESSION : compress_level; // Z_DEFAULT_COMPRESSION==-1
+#endif
       char mode[3]="w";
       if(0 <= compress_level) {
           if(9 <= compress_level) compress_level = 9;

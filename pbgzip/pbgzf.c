@@ -253,6 +253,7 @@ pbgzf_init(int fd, const char* __restrict mode)
   }
   
   // set type
+#ifndef DISABLE_BZ2
   if (strchr(mode, 'Z')) {
       compress_type = 0;
   } else if (strchr(mode, 'B')) {
@@ -265,6 +266,7 @@ pbgzf_init(int fd, const char* __restrict mode)
   else {
       compress_type = 0;
   }
+#endif
 
   fp = calloc(1, sizeof(PBGZF));
 

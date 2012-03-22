@@ -2,7 +2,7 @@ CC=			gcc
 CFLAGS=		-g -Wall -O2 -pthread
 #LDFLAGS=		-Wl,-rpath,\$$ORIGIN/../lib
 #DFLAGS=		-D_FILE_OFFSET_BITS=64 -D_LARGEFILE64_SOURCE -D_USE_KNETFILE -DHAVE_LIBPTHREAD -D_PBGZF_USE
-DFLAGS=		-D_FILE_OFFSET_BITS=64 -D_LARGEFILE64_SOURCE -D_USE_KNETFILE -D_CURSES_LIB=1 -DHAVE_LIBPTHREAD -D_PBGZF_USE
+DFLAGS=		-D_FILE_OFFSET_BITS=64 -D_LARGEFILE64_SOURCE -D_USE_KNETFILE -D_CURSES_LIB=1 -DHAVE_LIBPTHREAD -D_PBGZF_USE -DDISABLE_BZ2
 KNETFILE_O=	knetfile.o
 LOBJS=		bgzf.o pbgzip/block.o pbgzip/consumer.o pbgzip/pbgzf.o pbgzip/pbgzip.o \
 			pbgzip/queue.o pbgzip/reader.o pbgzip/util.o pbgzip/writer.o \
@@ -46,7 +46,7 @@ libbam.a:$(LOBJS)
 		$(AR) -csru $@ $(LOBJS)
 
 samtools:lib-recur $(AOBJS)
-		$(CC) $(CFLAGS) -o $@ $(AOBJS) $(LDFLAGS) libbam.a -Lbcftools -lbcf $(LIBPATH) $(LIBCURSES) -lm -lz -lbz2
+		$(CC) $(CFLAGS) -o $@ $(AOBJS) $(LDFLAGS) libbam.a -Lbcftools -lbcf $(LIBPATH) $(LIBCURSES) -lm -lz 
 
 razip:razip.o razf.o $(KNETFILE_O)
 		$(CC) $(CFLAGS) -o $@ razf.o razip.o $(KNETFILE_O) -lz

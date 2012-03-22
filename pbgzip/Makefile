@@ -1,7 +1,7 @@
 CC=			gcc
 CFLAGS=		-g -Wall -O2 -pthread
 #LDFLAGS=		-Wl,-rpath,\$$ORIGIN/../lib
-DFLAGS=		-D_FILE_OFFSET_BITS=64 -D_LARGEFILE64_SOURCE -D_USE_KNETFILE -DHAVE_LIBPTHREAD
+DFLAGS=		-D_FILE_OFFSET_BITS=64 -D_LARGEFILE64_SOURCE -D_USE_KNETFILE -DHAVE_LIBPTHREAD #-DDISABLE_BZ2
 AOBJS=		../bgzf.o ../knetfile.o util.o block.o consumer.o queue.o reader.o writer.o pbgzf.o pbgzip.o
 PROG=		pbgzip
 INCLUDES=	-I.

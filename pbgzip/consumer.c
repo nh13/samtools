@@ -109,10 +109,10 @@ consumer_inflate_block_bz2(consumer_t *c, block_t *b)
 static int
 consumer_inflate_block(consumer_t *c, block_t *block)
 {
+#ifndef DISABLE_BZ2
   // from bgzf.c
   static uint8_t magic[28] = "\037\213\010\4\0\0\0\0\0\377\6\0\102\103\2\0\033\0\3\0\0\0\0\0\0\0\0\0";
   static int32_t magic_l = 28;
-
   if (0 == c->compress_type) return consumer_inflate_block_gz(c, block);
   else if (magic_l == block->block_length) { // check EOF magic #...
       if (0 != memcmp(magic, block->buffer, magic_l)) return consumer_inflate_block_bz2(c, block);
@@ -120,6 +120,9 @@ consumer_inflate_block(consumer_t *c, block_t *block)
   } else {
       return consumer_inflate_block_bz2(c, block);
   }
+#else
+  return consumer_inflate_block_gz(c, block);
+#endif
 }
 
 static void
@@ -305,8 +308,12 @@ consumer_deflate_block_bz2(consumer_t *c, block_t *b)
 static int
 consumer_deflate_block(consumer_t *c, block_t *b)
 {
+#ifndef DISABLE_BZ2
   if(0 == c->compress_type) return consumer_deflate_block_gz(c, b);
   else return consumer_deflate_block_bz2(c, b);
+#else
+  return consumer_deflate_block_gz(c, b);
+#endif
 }
 
 void*

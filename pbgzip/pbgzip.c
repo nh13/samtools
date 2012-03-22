@@ -48,7 +48,9 @@ pbgzip_main_usage()
   fprintf(stderr, "         -d        decompress\n");
   fprintf(stderr, "         -f        overwrite files without asking\n");
   fprintf(stderr, "         -n INT    number of threads [%d]\n", detect_cpus());
+#ifndef DISABLE_BZ2
   fprintf(stderr, "         -t INT    the compress type (0 - gz, 1 - bz2) [%d]\n", 0);
+#endif
   fprintf(stderr, "         -1 .. -9  the compression level [%d]\n", Z_DEFAULT_COMPRESSION);
   fprintf(stderr, "         -h        give this help\n");
   fprintf(stderr, "\n");
@@ -64,7 +66,11 @@ main(int argc, char *argv[])
 
   compress = 1; compress_level = -1; compress_type = 0;
   pstdout = 0; is_forced = 0; queue_size = 1000; n_threads = detect_cpus();
+#ifndef DISABLE_BZ2
   while((opt = getopt(argc, argv, "cdhfn:t:q:0123456789")) >= 0){
+#else
+  while((opt = getopt(argc, argv, "cdhfn:q:0123456789")) >= 0){
+#endif
       if('0' <= opt && opt <= '9') {
           compress_level = opt - '0'; 
           continue;
@@ -75,7 +81,9 @@ main(int argc, char *argv[])
         case 'f': is_forced = 1; break;
         case 'q': queue_size = atoi(optarg); break;
         case 'n': n_threads = atoi(optarg); break;
+#ifndef DISABLE_BZ2
         case 't': compress_type = atoi(optarg); break;
+#endif
         case 'h': 
         default:
                   return pbgzip_main_usage();
@@ -91,18 +99,40 @@ main(int argc, char *argv[])
       if(1 == compress) {
           char *name = malloc(strlen(argv[optind]) + 5);
           strcpy(name, argv[optind]);
+#ifndef DISABLE_BZ2
+          if(0 == compress_type) strcat(name, ".gz");
+          else strcat(name, ".bz2");
+#else
           strcat(name, ".gz");
+#endif
           f_dst = write_open(name, is_forced);
           free(name);
           if (f_dst < 0) return 1;
       }
       else {
           char *name = strdup(argv[optind]);
+#ifndef DISABLE_BZ2
+          if(0 == compress_type) {
+              if(strlen(name) < 3 || 0 != strcmp(name + (strlen(name)-3), ".gz")) {
+                  fprintf(stderr, "Error: the input file did not end in .gz");
+                  return 1;
+              }
+              name[strlen(name) - 3] = '\0';
+          }
+          else {
+              if(strlen(name) < 4 || 0 != strcmp(name + (strlen(name)-4), ".bz2")) {
+                  fprintf(stderr, "Error: the input file did not end in .bz2");
+                  return 1;
+              }
+              name[strlen(name) - 4] = '\0';
+          }
+#else 
           if(strlen(name) < 3 || 0 != strcmp(name + (strlen(name)-3), ".gz")) {
               fprintf(stderr, "Error: the input file did not end in .gz");
               return 1;
           }
           name[strlen(name) - 3] = '\0';
+#endif
           f_dst = write_open(name, is_forced);
           free(name);
       }
