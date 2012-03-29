@@ -1,742 +1,789 @@
-#include "sam_header.h"
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
 #include <stdlib.h>
 #include <stdarg.h>
-
 #include "khash.h"
-KHASH_MAP_INIT_STR(str, const char *)
 
-struct _HeaderList
+#include "sam_header.h"
+
+typedef struct {
+    char tag[2];
+} sam_header_tag_t;
+#define __tageq(_tag_a, _tag_b) ((_tag_a).tag[0] == (_tag_b).tag[0] && (_tag_a).tag[1] == (_tag_b).tag[1])
+#define __tag_hash_func(_tag) ((khint_t)(_tag).tag[1] << 8 | (khint_t)(_tag).tag[0])
+
+KHASH_INIT(str, sam_header_tag_t, char *, 1, __tag_hash_func, __tageq);
+KHASH_INIT(records, sam_header_tag_t, sam_header_records_t*, 1, __tag_hash_func, __tageq);
+
+const char *SAM_HEADER_TYPE_TAGS[] = {"HD", "SQ", "RG", "PG", "CO", NULL};
+const int32_t SAM_HEADER_TYPE_TAGS_MAX[] = {1, INT_MAX, INT_MAX, INT_MAX, INT_MAX, -1};
+
+const char *SAM_HEADER_HD_TAGS_REQ[] = {"VN", NULL};
+const char *SAM_HEADER_HD_TAGS_OPT[] = {"SO", "GO", NULL};
+const char *SAM_HEADER_HD_TAGS_UNQ[] = {NULL};
+
+const char *SAM_HEADER_SQ_TAGS_REQ[] = {"SN", "LN", NULL};
+const char *SAM_HEADER_SQ_TAGS_OPT[] = {"AS", "M5", "SP", "UR", NULL};
+const char *SAM_HEADER_SQ_TAGS_UNQ[] = {"SN", NULL};
+
+const char *SAM_HEADER_RG_TAGS_REQ[] = {"ID", NULL};
+const char *SAM_HEADER_RG_TAGS_OPT[] = {"CN", "DS", "DT", "FO", "KS", "LB", "PG", "PI", "PL", "PU", "SM", NULL};
+const char *SAM_HEADER_RG_TAGS_UNQ[] = {"ID", NULL};
+
+const char *SAM_HEADER_PG_TAGS_REQ[] = {"ID", NULL};
+const char *SAM_HEADER_PG_TAGS_OPT[] = {"PN", "CL", "PP", "VN", NULL};
+const char *SAM_HEADER_PG_TAGS_UNQ[] = {"ID", NULL};
+
+const char **SAM_HEADER_TAGS_REQ[] = {SAM_HEADER_HD_TAGS_REQ, SAM_HEADER_SQ_TAGS_REQ, SAM_HEADER_RG_TAGS_REQ, SAM_HEADER_PG_TAGS_REQ, NULL, NULL}; 
+const char **SAM_HEADER_TAGS_OPT[] = {SAM_HEADER_HD_TAGS_OPT, SAM_HEADER_SQ_TAGS_OPT, SAM_HEADER_RG_TAGS_OPT, SAM_HEADER_PG_TAGS_OPT, NULL, NULL}; 
+const char **SAM_HEADER_TAGS_UNQ[] = {SAM_HEADER_HD_TAGS_UNQ, SAM_HEADER_SQ_TAGS_UNQ, SAM_HEADER_RG_TAGS_UNQ, SAM_HEADER_PG_TAGS_UNQ, NULL, NULL}; 
+
+static inline int32_t
+tagcmp(const char tag_a[2], const char tag_b[2])
 {
-    struct _HeaderList *last;   // Hack: Used and maintained only by list_append_to_end. Maintained in the root node only.
-    struct _HeaderList *next;
-    void *data;
-};
-typedef struct _HeaderList list_t;
-typedef list_t HeaderDict;
-
-typedef struct
-{
-    char key[2];
-    char *value;
-}
-HeaderTag;
-
-typedef struct
-{
-    char type[2];
-    list_t *tags;
-}
-HeaderLine;
-
-const char *o_hd_tags[] = {"SO","GO",NULL};
-const char *r_hd_tags[] = {"VN",NULL};
-
-const char *o_sq_tags[] = {"AS","M5","UR","SP",NULL};
-const char *r_sq_tags[] = {"SN","LN",NULL};
-const char *u_sq_tags[] = {"SN",NULL};
-
-const char *o_rg_tags[] = {"CN","DS","DT","FO","KS","LB","PG","PI","PL","PU","SM",NULL};
-const char *r_rg_tags[] = {"ID",NULL};
-const char *u_rg_tags[] = {"ID",NULL};
-
-const char *o_pg_tags[] = {"VN","CL",NULL};
-const char *r_pg_tags[] = {"ID",NULL};
-
-const char *types[]          = {"HD","SQ","RG","PG","CO",NULL};
-const char **optional_tags[] = {o_hd_tags,o_sq_tags,o_rg_tags,o_pg_tags,NULL,NULL};
-const char **required_tags[] = {r_hd_tags,r_sq_tags,r_rg_tags,r_pg_tags,NULL,NULL};
-const char **unique_tags[]   = {NULL,     u_sq_tags,u_rg_tags,NULL,NULL,NULL};
-
-
-static void debug(const char *format, ...)
-{
-    va_list ap;
-    va_start(ap, format);
-    vfprintf(stderr, format, ap);
-    va_end(ap);
+  if(tag_a[0] < tag_b[0] || (tag_a[0] == tag_b[0] && tag_a[1] < tag_b[1])) return -1;
+  else if(tag_a[0] == tag_b[0] && tag_a[1] == tag_b[1]) return 0;
+  else return 1;
 }
 
-#if 0
-// Replaced by list_append_to_end
-static list_t *list_prepend(list_t *root, void *data)
+static int32_t
+sam_header_tag2int(const char *tag, const char **tags)
 {
-    list_t *l = malloc(sizeof(list_t));
-    l->next = root;
-    l->data = data;
-    return l;
-}
-#endif
-
-// Relies on the root->last being correct. Do not use with the other list_*
-//  routines unless they are fixed to modify root->last as well.
-static list_t *list_append_to_end(list_t *root, void *data)
-{
-    list_t *l = malloc(sizeof(list_t));
-    l->last = l;
-    l->next = NULL;
-    l->data = data;
-
-    if ( !root )
-        return l;
-
-    root->last->next = l;
-    root->last = l;
-    return root;
+  int32_t i;
+  while(NULL != (*tags)) {
+      if(0 == tagcmp((*tags), tag)) return i;
+      tags++;
+  }
+  return -1;
 }
 
-static list_t *list_append(list_t *root, void *data)
+const char*
+sam_header_int2tag(int32_t type)
 {
-    list_t *l = root;
-    while (l && l->next)
-        l = l->next;
-    if ( l ) 
-    {
-        l->next = malloc(sizeof(list_t));
-        l = l->next;
-    }
-    else
-    {
-        l = malloc(sizeof(list_t));
-        root = l;
-    }
-    l->data = data;
-    l->next = NULL;
-    return root;
+  // TODO
+  return NULL;
 }
 
-static void list_free(list_t *root)
+const char*
+sam_header_int2tag2(int32_t type, int32_t tag_type)
 {
-    list_t *l = root;
-    while (root)
-    {
-        l = root;
-        root = root->next;
-        free(l);
-    }
+  // TODO
+  return NULL;
 }
 
-
-
-// Look for a tag "XY" in a predefined const char *[] array.
-static int tag_exists(const char *tag, const char **tags)
+static void 
+debug(const char *format, ...)
 {
-    int itag=0;
-    if ( !tags ) return -1;
-    while ( tags[itag] )
-    {
-        if ( tags[itag][0]==tag[0] && tags[itag][1]==tag[1] ) return itag; 
-        itag++;
-    }
-    return -1;
+  va_list ap;
+  va_start(ap, format);
+  vfprintf(stderr, format, ap);
+  va_end(ap);
 }
-
-
 
 // Mimics the behaviour of getline, except it returns pointer to the next chunk of the text
 //  or NULL if everything has been read. The lineptr should be freed by the caller. The
 //  newline character is stripped.
-static const char *nextline(char **lineptr, size_t *n, const char *text)
+static const char *
+nextline(char **lineptr, size_t *n, const char *text)
 {
-    int len;
-    const char *to = text;
+  int len;
+  const char *to = text;
 
-    if ( !*to ) return NULL;
+  if(0 == (*to)) return NULL;
 
-    while ( *to && *to!='\n' && *to!='\r' ) to++;
-    len = to - text + 1;
+  while(0 != (*to) && '\n' != (*to) && '\r' != (*to)) {
+      to++;
+  }
+  len = to - text + 1;
 
-    if ( *to )
+  if ( *to )
     {
-        // Advance the pointer for the next call
-        if ( *to=='\n' ) to++;
-        else if ( *to=='\r' && *(to+1)=='\n' ) to+=2;
+      // Advance the pointer for the next call
+      if ( *to=='\n' ) to++;
+      else if ( *to=='\r' && *(to+1)=='\n' ) to+=2;
     }
-    if ( !len )
-        return to;
-
-    if ( !*lineptr ) 
-    {
-        *lineptr = malloc(len);
-        *n = len;
-    }
-    else if ( *n<len ) 
-    {
-        *lineptr = realloc(*lineptr, len);
-        *n = len;
-    }
-    if ( !*lineptr ) {
-		debug("[nextline] Insufficient memory!\n");
-		return 0;
-	}
-
-    memcpy(*lineptr,text,len);
-    (*lineptr)[len-1] = 0;
-
+  if ( !len )
     return to;
+
+  if ( !*lineptr )
+    {
+      *lineptr = malloc(len);
+      *n = len;
+    }
+  else if ( *n<len )
+    {
+      *lineptr = realloc(*lineptr, len);
+      *n = len;
+    }
+  if ( !*lineptr ) {
+      debug("[%s] Insufficient memory!\n", __func__);
+      return 0;
+  }
+
+  memcpy(*lineptr,text,len);
+  (*lineptr)[len-1] = 0;
+
+  return to;
 }
 
-// name points to "XY", value_from points to the first character of the value string and
-//  value_to points to the last character of the value string.
-static HeaderTag *new_tag(const char *name, const char *value_from, const char *value_to)
+sam_header_record_t*
+sam_header_record_init(const char tag[2])
 {
-    HeaderTag *tag = malloc(sizeof(HeaderTag));
-    int len = value_to-value_from+1;
+  sam_header_record_t *r = NULL;
 
-    tag->key[0] = name[0];
-    tag->key[1] = name[1];
-    tag->value = malloc(len+1);
-    memcpy(tag->value,value_from,len+1);
-    tag->value[len] = 0;
-    return tag;
+  r = calloc(1, sizeof(sam_header_record_t));
+  if(NULL == r) {
+      return NULL;
+  }
+
+  r->type = sam_header_tag2int(tag, SAM_HEADER_TYPE_TAGS);
+  r->tag[0] = tag[0]; r->tag[1] = tag[1];
+  r->hash = (void*)kh_init(str);
+
+  return r;
 }
 
-static HeaderTag *header_line_has_tag(HeaderLine *hline, const char *key)
+void
+sam_header_record_destroy(sam_header_record_t *r)
 {
-    list_t *tags = hline->tags;
-    while (tags)
-    {
-        HeaderTag *tag = tags->data;
-        if ( tag->key[0]==key[0] && tag->key[1]==key[1] ) return tag;
-        tags = tags->next;
-    }
-    return NULL;
+  khash_t(str) *hash = (khash_t(str)*)r->hash;
+  khiter_t k;
+  for(k = kh_begin(hash); k != kh_end(hash); ++k) {
+      if (kh_exist(hash, k)) {
+          free(kh_value(hash, k));
+          kh_value(hash, k) = NULL;
+      }
+  }
+  kh_destroy(str, hash);
+  free(r);
 }
 
-
-// Return codes:
-//   0 .. different types or unique tags differ or conflicting tags, cannot be merged
-//   1 .. all tags identical -> no need to merge, drop one
-//   2 .. the unique tags match and there are some conflicting tags (same tag, different value) -> error, cannot be merged nor duplicated
-//   3 .. there are some missing complementary tags and no unique conflict -> can be merged into a single line
-static int sam_header_compare_lines(HeaderLine *hline1, HeaderLine *hline2)
+int32_t
+sam_header_record_add(sam_header_record_t *r, const char *key, const char *value)
 {
-    HeaderTag *t1, *t2;
-
-    if ( hline1->type[0]!=hline2->type[0] || hline1->type[1]!=hline2->type[1] )
-        return 0;
-
-    int itype = tag_exists(hline1->type,types);
-    if ( itype==-1 ) {
-		debug("[sam_header_compare_lines] Unknown type [%c%c]\n", hline1->type[0],hline1->type[1]);
-		return -1; // FIXME (lh3): error; I do not know how this will be handled in Petr's code
-	}
-
-    if ( unique_tags[itype] )
-    {
-        t1 = header_line_has_tag(hline1,unique_tags[itype][0]);
-        t2 = header_line_has_tag(hline2,unique_tags[itype][0]);
-        if ( !t1 || !t2 ) // this should never happen, the unique tags are required
-            return 2;
-
-        if ( strcmp(t1->value,t2->value) )
-            return 0;   // the unique tags differ, cannot be merged
-    }
-    if ( !required_tags[itype] && !optional_tags[itype] )
-    {
-        t1 = hline1->tags->data;
-        t2 = hline2->tags->data;
-        if ( !strcmp(t1->value,t2->value) ) return 1; // identical comments
-        return 0;
-    }
-
-    int missing=0, itag=0;
-    while ( required_tags[itype] && required_tags[itype][itag] )
-    {
-        t1 = header_line_has_tag(hline1,required_tags[itype][itag]);
-        t2 = header_line_has_tag(hline2,required_tags[itype][itag]);
-        if ( !t1 && !t2 )
-            return 2;       // this should never happen
-        else if ( !t1 || !t2 )
-            missing = 1;    // there is some tag missing in one of the hlines
-        else if ( strcmp(t1->value,t2->value) )
-        {
-            if ( unique_tags[itype] )
-                return 2;   // the lines have a matching unique tag but have a conflicting tag
-                    
-            return 0;    // the lines contain conflicting tags, cannot be merged
-        }
-        itag++;
-    }
-    itag = 0;
-    while ( optional_tags[itype] && optional_tags[itype][itag] )
-    {
-        t1 = header_line_has_tag(hline1,optional_tags[itype][itag]);
-        t2 = header_line_has_tag(hline2,optional_tags[itype][itag]);
-        if ( !t1 && !t2 )
-        {
-            itag++;
-            continue;
-        }
-        if ( !t1 || !t2 )
-            missing = 1;    // there is some tag missing in one of the hlines
-        else if ( strcmp(t1->value,t2->value) )
-        {
-            if ( unique_tags[itype] )
-                return 2;   // the lines have a matching unique tag but have a conflicting tag
-
-            return 0;   // the lines contain conflicting tags, cannot be merged
-        }
-        itag++;
-    }
-    if ( missing ) return 3;    // there are some missing complementary tags with no conflicts, can be merged
-    return 1;
+  khash_t(str) *hash = (khash_t(str)*)r->hash;
+  khiter_t k;
+  char *v = NULL;
+  int ret;
+  sam_header_tag_t key_str; key_str.tag[0] = key[0]; key_str.tag[1] = key[1];
+  k = kh_get(str, hash, key_str);
+  if(k != kh_end(hash)) {
+      debug("[%s] The key %s is not unique.\n", __func__, key);
+      return 0;
+  }
+  k = kh_put(str, hash, key_str, &ret);
+  v = malloc(sizeof(char) * (1 + strlen(value)));
+  if(NULL == v) return 0;
+  strcpy(v, value);
+  kh_value(hash, k) = v;
+  return 1;
 }
 
-
-static HeaderLine *sam_header_line_clone(const HeaderLine *hline)
+int32_t
+sam_header_record_set(sam_header_record_t *r, const char *tag, const char *value)
 {
-    list_t *tags;
-    HeaderLine *out = malloc(sizeof(HeaderLine));
-    out->type[0] = hline->type[0];
-    out->type[1] = hline->type[1];
-    out->tags = NULL;
-
-    tags = hline->tags;
-    while (tags)
-    {
-        HeaderTag *old = tags->data;
-
-        HeaderTag *new = malloc(sizeof(HeaderTag));
-        new->key[0] = old->key[0];
-        new->key[1] = old->key[1];
-        new->value  = strdup(old->value);
-        out->tags = list_append(out->tags, new);
-
-        tags = tags->next;
-    }
-    return out;
+  khash_t(str) *hash = (khash_t(str)*)r->hash;
+  khiter_t k;
+  char *v = NULL;
+  int ret;
+  sam_header_tag_t key; key.tag[0] = tag[0]; key.tag[1] = tag[1];
+  k = kh_put(str, hash, key, &ret);
+  v = malloc(sizeof(char) * (1 + strlen(value)));
+  if(NULL == v) return 0;
+  strcpy(v, value);
+  kh_value(hash, k) = v;
+  return 1;
 }
 
-static int sam_header_line_merge_with(HeaderLine *out_hline, const HeaderLine *tmpl_hline)
+char*
+sam_header_record_get(sam_header_record_t *r, const char *tag)
 {
-    list_t *tmpl_tags;
-
-    if ( out_hline->type[0]!=tmpl_hline->type[0] || out_hline->type[1]!=tmpl_hline->type[1] )
-        return 0;
-    
-    tmpl_tags = tmpl_hline->tags;
-    while (tmpl_tags)
-    {
-        HeaderTag *tmpl_tag = tmpl_tags->data;
-        HeaderTag *out_tag  = header_line_has_tag(out_hline, tmpl_tag->key);
-        if ( !out_tag )
-        {
-            HeaderTag *tag = malloc(sizeof(HeaderTag));
-            tag->key[0] = tmpl_tag->key[0];
-            tag->key[1] = tmpl_tag->key[1];
-            tag->value  = strdup(tmpl_tag->value);
-            out_hline->tags = list_append(out_hline->tags,tag);
-        }
-        tmpl_tags = tmpl_tags->next;
-    }
-    return 1;
+  khash_t(str) *hash = (khash_t(str)*)r->hash;
+  khiter_t k;
+  sam_header_tag_t key; key.tag[0] = tag[0]; key.tag[1] = tag[1];
+  k = kh_get(str, hash, key);
+  return k == kh_end(hash) ? NULL : kh_val(hash, k);
 }
 
-
-static HeaderLine *sam_header_line_parse(const char *headerLine)
+int32_t
+sam_header_record_check(sam_header_record_t *record)
 {
-    HeaderLine *hline;
-    HeaderTag *tag;
-    const char *from, *to;
-    from = headerLine;
+  char **tags_req = NULL;
 
-    if ( *from != '@' ) {
-		debug("[sam_header_line_parse] expected '@', got [%s]\n", headerLine);
-		return 0;
-	}
-    to = ++from;
-
-    while (*to && *to!='\t') to++;
-    if ( to-from != 2 ) {
-		debug("[sam_header_line_parse] expected '@XY', got [%s]\nHint: The header tags must be tab-separated.\n", headerLine);
-		return 0;
-	}
-    
-    hline = malloc(sizeof(HeaderLine));
-    hline->type[0] = from[0];
-    hline->type[1] = from[1];
-    hline->tags = NULL;
-
-    int itype = tag_exists(hline->type, types);
-    
-    from = to;
-    while (*to && *to=='\t') to++;
-    if ( to-from != 1 ) {
-        debug("[sam_header_line_parse] multiple tabs on line [%s] (%d)\n", headerLine,(int)(to-from));
-		return 0;
-	}
-    from = to;
-    while (*from)
-    {
-        while (*to && *to!='\t') to++;
-
-        if ( !required_tags[itype] && !optional_tags[itype] )
-        {
-            // CO is a special case, it can contain anything, including tabs
-            if ( *to ) { to++; continue; }
-            tag = new_tag("  ",from,to-1);
-        }
-        else
-            tag = new_tag(from,from+3,to-1);
-
-        if ( header_line_has_tag(hline,tag->key) ) 
-                debug("The tag '%c%c' present (at least) twice on line [%s]\n", tag->key[0],tag->key[1], headerLine);
-        hline->tags = list_append(hline->tags, tag);
-
-        from = to;
-        while (*to && *to=='\t') to++;
-        if ( *to && to-from != 1 ) {
-			debug("[sam_header_line_parse] multiple tabs on line [%s] (%d)\n", headerLine,(int)(to-from));
-			return 0;
-		}
-
-        from = to;
-    }
-    return hline;
+  if(NULL == record) return 0;
+  if(-1 == record->type) return 1;
+  tags_req = (char**)SAM_HEADER_TAGS_REQ[record->type];
+  while(NULL != (*tags_req)) { // go through the required tags
+      if(NULL == sam_header_record_get(record, (*tags_req))) {
+          debug("[%s] required tag [%s] missing from record type [%s]\n", __func__, (*tags_req), record->tag);
+          return 0;
+      }
+      tags_req++;
+  }
+  return 1;
 }
 
-
-// Must be of an existing type, all tags must be recognised and all required tags must be present
-static int sam_header_line_validate(HeaderLine *hline)
+sam_header_record_t*
+sam_header_record_parse(const char *buf)
 {
-    list_t *tags;
-    HeaderTag *tag;
-    int itype, itag;
-    
-    // Is the type correct?
-    itype = tag_exists(hline->type, types);
-    if ( itype==-1 ) 
-    {
-        debug("The type [%c%c] not recognised.\n", hline->type[0],hline->type[1]);
-        return 0;
-    }
+  sam_header_record_t *r = NULL;
+  const char *from = NULL, *to = NULL;
+  char tag[3]="\0";
+  char *value = NULL;
+  size_t value_mem = 0;
 
-    // Has all required tags?
-    itag = 0;
-    while ( required_tags[itype] && required_tags[itype][itag] )
-    {
-        if ( !header_line_has_tag(hline,required_tags[itype][itag]) )
-        {
-            debug("The tag [%c%c] required for [%c%c] not present.\n", required_tags[itype][itag][0],required_tags[itype][itag][1],
-                hline->type[0],hline->type[1]);
-            return 0;
-        }
-        itag++;
-    }
+  if(NULL == buf || 0 == (*buf)) return NULL;
 
-    // Are all tags recognised?
-    tags = hline->tags;
-    while ( tags )
-    {
-        tag = tags->data;
-        if ( !tag_exists(tag->key,required_tags[itype]) && !tag_exists(tag->key,optional_tags[itype]) )
-        {
-            // Lower case tags are user-defined values.
-            if( !(islower(tag->key[0]) || islower(tag->key[1])) )
-            {
-                // Neither is lower case, but tag was not recognized.
-                debug("Unknown tag [%c%c] for [%c%c].\n", tag->key[0],tag->key[1], hline->type[0],hline->type[1]);
-                // return 0; // Even unknown tags are allowed - for forward compatibility with new attributes
-            }
-            // else - allow user defined tag
-        }
-        tags = tags->next;
-    }
+  from = buf;
 
-    return 1;
+  if('@' != (*from)) { 
+    debug("[%s] expected '@', got [%s]\n", __func__, buf);
+  }
+  to = ++from;
+
+  // skip over first tab
+  while(0 != (*to) && '\t' != (*to)) {
+    to++;
+  }
+  if(2 != (to - from)) {
+      debug("[%s] expected '@XY', got [%s]\nHint: The header tags must be tab-separated.\n", __func__, buf);
+      return 0;
+  }
+
+  tag[0] = from[0]; tag[1] = from[1]; tag[2] = '\0';
+  r = sam_header_record_init(tag);
+  if(NULL == r) {
+      //debug("[%s] non-standard header tag[%s]\n", tag);
+      return 0;
+  }
+
+  // skip over the current tab(s)
+  from = to;
+  while(0 != (*to) && '\t' == (*to)) {
+    to++;
+  }
+  if(1 != (to - from)) {
+      debug("[%s] multiple tabs on line [%s] (%d)\n", __func__, buf, (int)(to-from));
+      return 0;
+  }
+  from = to;
+  while(0 != (*from)) {
+      size_t len = 0;
+      // skip to the next tab
+      while(0 != (*to) && '\t' != (*to)) {
+          to++;
+      }
+
+      if(SAM_HEADER_TYPE_CO == r->type) { // CO (comment tag)
+          // CO is a special case, it can contain anything, including tabs
+          if(NULL != to) { // more characters left
+              to++; 
+              continue;
+          }
+          tag[0] = tag[1] = ' '; tag[2] = '\0';
+          len = (to - from);
+          if(value_mem < len+1) {
+              value = realloc(value, sizeof(char) * (len+1));
+              value_mem = len + 1;
+          }
+          strncpy(value, from, len);
+      }
+      else {
+          tag[0] = from[0]; tag[1] = from[1]; tag[2] = '\0';
+          len = (to - from - 3);
+          if(value_mem < len+1) {
+              value = realloc(value, sizeof(char) * (len+1));
+              value_mem = len + 1;
+          }
+          strncpy(value, from+3, len);
+      }
+
+      // try to add
+      if(0 == sam_header_record_add(r, tag, value)) {
+          debug("[%s] The tag '%s' present (at least) twice on line [%s]\n", __func__, tag, buf);
+      }
+      //debug("[%s] added tag '%s' from '%s' record type with value '%s'\n", __func__, tag, r->tag, value);
+
+      // skip over the current tab(s)
+      from = to;
+      while(0 != (*to) && '\t' == (*to)) {
+          to++;
+      }
+      if(0 != (*to) && 1 != (to - from)) {
+          debug("[%s] multiple tabs on line [%s] (%d)\n", __func__, buf, (int)(to-from));
+          sam_header_record_destroy(r);
+          r = NULL;
+          return 0;
+      }
+      from = to;
+  }
+  free(value);
+
+  // check required values etc.
+  if(0 == sam_header_record_check(r)) {
+      sam_header_record_destroy(r);
+      r = NULL;
+      return 0;
+  }
+  
+  return r;
 }
 
-
-static void print_header_line(FILE *fp, HeaderLine *hline)
+sam_header_record_t*
+sam_header_record_clone(sam_header_record_t *src)
 {
-    list_t *tags = hline->tags;
-    HeaderTag *tag;
+  sam_header_record_t *dst = NULL;
+  khash_t(str) *hash = NULL;
+  khiter_t k;
 
-    fprintf(fp, "@%c%c", hline->type[0],hline->type[1]);
-    while (tags)
-    {
-        tag = tags->data;
+  if(NULL == src) return NULL;
+  hash = (khash_t(str)*)src->hash;
+  dst = sam_header_record_init(src->tag);
+  for(k = kh_begin(hash); k != kh_end(hash); ++k) {
+      if (kh_exist(hash, k)) {
+          sam_header_record_add(dst, kh_key(hash, k).tag, kh_value(hash, k));
+      }
+  }
 
-        fprintf(fp, "\t");
-        if ( tag->key[0]!=' ' || tag->key[1]!=' ' )
-            fprintf(fp, "%c%c:", tag->key[0],tag->key[1]);
-        fprintf(fp, "%s", tag->value);
-
-        tags = tags->next;
-    }
-    fprintf(fp,"\n");
+  return dst;
 }
 
-
-static void sam_header_line_free(HeaderLine *hline)
+sam_header_records_t*
+sam_header_records_init(const char tag[2])
 {
-    list_t *tags = hline->tags;
-    while (tags)
-    {
-        HeaderTag *tag = tags->data;
-        free(tag->value);
-        free(tag);
-        tags = tags->next;
-    }
-    list_free(hline->tags);
-    free(hline);
+  sam_header_records_t *records = NULL;
+  records = calloc(1, sizeof(sam_header_records_t));
+  records->type = sam_header_tag2int(tag, SAM_HEADER_TYPE_TAGS);
+  records->tag[0] = tag[0]; records->tag[1] = tag[1];
+  return records;
 }
 
-void sam_header_free(void *_header)
+void
+sam_header_records_destroy(sam_header_records_t *records)
 {
-	HeaderDict *header = (HeaderDict*)_header;
-    list_t *hlines = header;
-    while (hlines)
-    {
-        sam_header_line_free(hlines->data);
-        hlines = hlines->next;
-    }
-    list_free(header);
+  int32_t i;
+  if(NULL == records) return;
+  for(i=0;i<records->n;i++) {
+      sam_header_record_destroy(records->records[i]);
+  }
+  free(records->records);
+  free(records);
 }
 
-HeaderDict *sam_header_clone(const HeaderDict *dict)
+// NB: shallow copy
+void
+sam_header_records_add(sam_header_records_t *records, sam_header_record_t *record)
 {
-    HeaderDict *out = NULL;
-    while (dict)
-    {
-        HeaderLine *hline = dict->data;
-        out = list_append(out, sam_header_line_clone(hline));
-        dict = dict->next;
-    }
-    return out;
+  records->n++;
+  records->records = realloc(records->records, sizeof(sam_header_record_t*) * records->n);
+  records->records[records->n-1] = record;
 }
 
-// Returns a newly allocated string
-char *sam_header_write(const void *_header)
+int32_t
+sam_header_records_check(sam_header_records_t *records)
 {
-	const HeaderDict *header = (const HeaderDict*)_header;
-    char *out = NULL;
-    int len=0, nout=0;
-    const list_t *hlines;
+  int32_t i, j;
+  char **tags_unq = NULL;
+  
+  if(SAM_HEADER_TYPE_NONE == records->type) return 1;
 
-    // Calculate the length of the string to allocate
-    hlines = header;
-    while (hlines)
-    {
-        len += 4;   // @XY and \n
+  // check record
+  if(SAM_HEADER_TYPE_TAGS_MAX[records->type] < records->n) { // too many
+      debug("[%s] found too many lines for tag [%s] (%d)\n", __func__, records->tag, records->n); 
+      return 0;
+  }
 
-        HeaderLine *hline = hlines->data;
-        list_t *tags = hline->tags;
-        while (tags)
-        {
-            HeaderTag *tag = tags->data;
-            len += strlen(tag->value) + 1;                  // \t
-            if ( tag->key[0]!=' ' || tag->key[1]!=' ' )
-                len += strlen(tag->value) + 3;              // XY:
-            tags = tags->next;
-        }
-        hlines = hlines->next;
-    }
+  // check unique tags
+  for(i=0;i<records->n;i++) {
+      sam_header_record_t *r1 = records->records[i];
 
-    nout = 0;
-    out  = malloc(len+1);
-    hlines = header;
-    while (hlines)
-    {
-        HeaderLine *hline = hlines->data;
+      // check individual records
+      if(0 == sam_header_record_check(r1)) {
+          return 0;
+      }
 
-        nout += sprintf(out+nout,"@%c%c",hline->type[0],hline->type[1]);
+      // compare against others
+      for(j=0;j<records->n;j++) {
+          sam_header_record_t *r2 = records->records[j];
+          if(r1->type != r2->type || 0 != tagcmp(r1->tag, r2->tag)) {
+              debug("[%s] found inconsistency in the sam header [%d,%d,%s,%s]\n", __func__, i, j, r1->tag, r2->tag);
+              return 0;
+          }
+          if(i == j) continue;
+          tags_unq = (char**)SAM_HEADER_TAGS_UNQ[records->type];
+          while(NULL != (*tags_unq)) {
+              char *v1 = sam_header_record_get(r1, (*tags_unq));
+              char *v2 = sam_header_record_get(r2, (*tags_unq));
+              if(NULL != v1 && NULL != v2 && 0 == strcmp(v1, v2)) {
+                  debug("[%s] value for %s.%s was not unique\n", records->tag, (*tags_unq));
+                  return 0;
+              }
 
-        list_t *tags = hline->tags;
-        while (tags)
-        {
-            HeaderTag *tag = tags->data;
-            nout += sprintf(out+nout,"\t");
-            if ( tag->key[0]!=' ' || tag->key[1]!=' ' )
-                nout += sprintf(out+nout,"%c%c:", tag->key[0],tag->key[1]);
-            nout += sprintf(out+nout,"%s", tag->value);
-            tags = tags->next;
-        }
-        hlines = hlines->next;
-        nout += sprintf(out+nout,"\n");
-    }
-    out[len] = 0;
-    return out;
+              tags_unq++;
+          }
+      }
+  }
+
+  return 1;
 }
 
-void *sam_header_parse2(const char *headerText)
+sam_header_t*
+sam_header_init()
 {
-    list_t *hlines = NULL;
-    HeaderLine *hline;
-    const char *text;
-    char *buf=NULL;
-    size_t nbuf = 0;
-	int tovalidate = 0;
+  sam_header_t *h = NULL;
+  char **tags = (char**)SAM_HEADER_TYPE_TAGS;
+  khiter_t k;
+  int ret;
 
-    if ( !headerText )
-		return 0;
+  khash_t(records) *hash = NULL;
+  h = calloc(1, sizeof(sam_header_t));
+  hash = kh_init(records);
+  h->hash = (void*)hash;
 
-    text = headerText;
-    while ( (text=nextline(&buf, &nbuf, text)) )
-    {
-        hline = sam_header_line_parse(buf);
-        if ( hline && (!tovalidate || sam_header_line_validate(hline)) )
-            // With too many (~250,000) reference sequences the header parsing was too slow with list_append.
-            hlines = list_append_to_end(hlines, hline);
-        else
-        {
-			if (hline) sam_header_line_free(hline);
-			sam_header_free(hlines);
-            if ( buf ) free(buf);
-            return NULL;
-        }
-    }
-    if ( buf ) free(buf);
+  while(NULL != (*tags)) {
+      sam_header_records_t *r = NULL;
+      sam_header_tag_t key; key.tag[0] = (*tags)[0]; key.tag[1] = (*tags)[1];
+      k = kh_put(records, hash, key, &ret);
+      r = sam_header_records_init((*tags));
+      kh_value(hash, k) = r;
+      tags++;
+  }
 
-    return hlines;
+  return h;
 }
 
-void *sam_header2tbl(const void *_dict, char type[2], char key_tag[2], char value_tag[2])
+void
+sam_header_destroy(sam_header_t *h)
 {
-	const HeaderDict *dict = (const HeaderDict*)_dict;
-    const list_t *l   = dict;
-    khash_t(str) *tbl = kh_init(str);
-    khiter_t k;
-    int ret;
-
-	if (_dict == 0) return tbl; // return an empty (not null) hash table
-    while (l)
-    {
-        HeaderLine *hline = l->data;
-        if ( hline->type[0]!=type[0] || hline->type[1]!=type[1] ) 
-        {
-            l = l->next;
-            continue;
-        }
-        
-        HeaderTag *key, *value;
-        key   = header_line_has_tag(hline,key_tag);
-        value = header_line_has_tag(hline,value_tag); 
-        if ( !key || !value )
-        {
-            l = l->next;
-            continue;
-        }
-        
-        k = kh_get(str, tbl, key->value);
-        if ( k != kh_end(tbl) )
-            debug("[sam_header_lookup_table] They key %s not unique.\n", key->value);
-        k = kh_put(str, tbl, key->value, &ret);
-        kh_value(tbl, k) = value->value;
-
-        l = l->next;
-    }
-    return tbl;
+  khash_t(records) *hash;
+  khiter_t k;
+  if(NULL == h) return;
+  hash = (khash_t(records)*)h->hash;
+  for(k = kh_begin(hash); k != kh_end(hash); ++k) {
+      if (kh_exist(hash, k)) {
+          sam_header_records_destroy(kh_value(hash, k));
+          kh_value(hash, k) = NULL;
+      }
+  }
+  kh_destroy(records, hash);
+  free(h);
 }
 
-char **sam_header2list(const void *_dict, char type[2], char key_tag[2], int *_n)
+sam_header_records_t*
+sam_header_get_records(const sam_header_t *h, const char type_tag[2])
 {
-	const HeaderDict *dict = (const HeaderDict*)_dict;
-    const list_t *l   = dict;
-    int max, n;
-	char **ret;
-
-	ret = 0; *_n = max = n = 0;
-    while (l)
-    {
-        HeaderLine *hline = l->data;
-        if ( hline->type[0]!=type[0] || hline->type[1]!=type[1] ) 
-        {
-            l = l->next;
-            continue;
-        }
-        
-        HeaderTag *key;
-        key   = header_line_has_tag(hline,key_tag);
-        if ( !key )
-        {
-            l = l->next;
-            continue;
-        }
-
-		if (n == max) {
-			max = max? max<<1 : 4;
-			ret = realloc(ret, max * sizeof(void*));
-		}
-		ret[n++] = key->value;
-
-        l = l->next;
-    }
-	*_n = n;
-    return ret;
+  khash_t(records) *hash = (khash_t(records)*)h->hash;
+  khiter_t k;
+  sam_header_tag_t key; key.tag[0] = type_tag[0]; key.tag[1] = type_tag[1];
+  k = kh_get(records, hash, key);
+  return k == kh_end(hash) ? NULL : kh_val(hash, k);
 }
 
-const char *sam_tbl_get(void *h, const char *key)
+// NB: shallow copy
+int32_t
+sam_header_add_record(sam_header_t *h, sam_header_record_t *record, const char type[2])
 {
-	khash_t(str) *tbl = (khash_t(str)*)h;
-	khint_t k;
-	k = kh_get(str, tbl, key);
-	return k == kh_end(tbl)? 0 : kh_val(tbl, k);
+  khash_t(records) *hash = (khash_t(records)*)h->hash;
+  khiter_t k;
+  sam_header_records_t *records = NULL;
+  int ret;
+  sam_header_tag_t key; key.tag[0] = type[0]; key.tag[1] = type[1];
+  k = kh_get(records, hash, key);
+  if(k != kh_end(hash)) { // already exits
+      records = kh_val(hash, k); 
+      // check if we should multiple are allowed etc...
+      if(SAM_HEADER_TYPE_TAGS_MAX[records->type] <= records->n) {
+          debug("[%s] too many lines for tag [%s] (%d)\n", __func__, records->tag, records->n+1); 
+          return 0;
+      }
+  }
+  else { // new
+      records = sam_header_records_init(type); 
+      k = kh_put(records, hash, key, &ret);
+      kh_value(hash, k) = records;
+  }
+  sam_header_records_add(records, record);
+  return 1;
 }
 
-int sam_tbl_size(void *h)
+sam_header_t*
+sam_header_clone(const sam_header_t *h)
 {
-	khash_t(str) *tbl = (khash_t(str)*)h;
-	return h? kh_size(tbl) : 0;
+  sam_header_t *out = NULL;
+  khash_t(records) *hash = NULL;
+  khiter_t k;
+  int32_t i;
+  if(NULL == h) return NULL;
+
+  out = sam_header_init();
+  hash = (khash_t(records)*)h->hash;
+  for(k = kh_begin(hash); k != kh_end(hash); ++k) {
+      if (kh_exist(hash, k)) {
+          sam_header_records_t *records = kh_value(hash, k);
+          const char *key = kh_key(hash, k).tag;
+          for(i=0;i<records->n;i++) {
+              sam_header_record_t *record= records->records[i];
+              if(0 == sam_header_add_record(out, sam_header_record_clone(record), key)) {
+                  debug("[%s] error adding a record, trying to continue...\n", __func__);
+              }
+          }
+      }
+  }
+
+  return NULL;
 }
 
-void sam_tbl_destroy(void *h)
+// NB: shallow copy
+char **
+sam_header_list(const sam_header_t *h, const char type_tag[2], const char key_tag[2], int *n)
 {
-	khash_t(str) *tbl = (khash_t(str)*)h;
-	kh_destroy(str, tbl);
+  char **list = NULL;
+  int32_t i;
+  sam_header_records_t *records = NULL;
+
+  (*n) = 0;
+
+  records = sam_header_get_records(h, type_tag);
+  if(NULL == records) return NULL; 
+
+  for(i=0;i<records->n;i++) {
+      sam_header_record_t *record = records->records[i];
+      char *value = sam_header_record_get(record, key_tag);
+      if(NULL != value) {
+          (*n)++;
+          list = realloc(list, sizeof(char*) * (*n));
+          list[(*n)-1] = value; 
+      }
+  }
+
+  return list;
 }
 
-void *sam_header_merge(int n, const void **_dicts)
+// NB: shallow copy
+void*
+sam_header_table(const sam_header_t *h, char type_tag[2], char key_tag[2], char value_tag[2])
 {
-	const HeaderDict **dicts = (const HeaderDict**)_dicts;
-    HeaderDict *out_dict;
-    int idict, status;
+  khash_t(str) *tbl = kh_init(str);
+  khiter_t k;
+  int32_t i;
+  sam_header_records_t *records = NULL;
+  int ret;
 
-    if ( n<2 ) return NULL;
+  records = sam_header_get_records(h, type_tag);
+  if(NULL == records) return tbl; 
 
-    out_dict = sam_header_clone(dicts[0]);
+  for(i=0;i<records->n;i++) {
+      sam_header_record_t *record = records->records[i];
+      const char *key = sam_header_record_get(record, key_tag);
+      char *value = sam_header_record_get(record, value_tag);
+      if(NULL != key && NULL != value) {
+          sam_header_tag_t key_str; key_str.tag[0] = key[0]; key_str.tag[1] = key[1];
 
-    for (idict=1; idict<n; idict++)
-    {
-        const list_t *tmpl_hlines = dicts[idict];
+          k = kh_get(str, tbl, key_str);
+          if(k != kh_end(tbl)) {
+              // TODO not unique
+          }
+          k = kh_put(str, tbl, key_str, &ret);
+          kh_value(tbl, k) = value;
+      }
+  }
 
-        while ( tmpl_hlines )
-        {
-            list_t *out_hlines = out_dict;
-            int inserted = 0;
-            while ( out_hlines )
-            {
-                status = sam_header_compare_lines(tmpl_hlines->data, out_hlines->data);
-                if ( status==0 )
-                {
-                    out_hlines = out_hlines->next;
-                    continue;
-                }
-                
-                if ( status==2 ) 
-                {
-                    print_header_line(stderr,tmpl_hlines->data);
-                    print_header_line(stderr,out_hlines->data);
-                    debug("Conflicting lines, cannot merge the headers.\n");
-					return 0;
-                }
-                if ( status==3 )
-                    sam_header_line_merge_with(out_hlines->data, tmpl_hlines->data);
-
-                inserted = 1;
-                break;
-            }
-            if ( !inserted )
-                out_dict = list_append(out_dict, sam_header_line_clone(tmpl_hlines->data));
-
-            tmpl_hlines = tmpl_hlines->next;
-        }
-    }
-
-    return out_dict;
+  return tbl;
 }
 
+const char *
+sam_tbl_get(void *h, const char *key)
+{
+  khash_t(str) *tbl = (khash_t(str)*)h;
+  khint_t k;
+  sam_header_tag_t key_str; key_str.tag[0] = key[0]; key_str.tag[1] = key[1];
+  k = kh_get(str, tbl, key_str);
+  return k == kh_end(tbl)? 0 : kh_val(tbl, k);
+}
 
+int 
+sam_tbl_size(void *h)
+{
+  khash_t(str) *tbl = (khash_t(str)*)h;
+  return h? kh_size(tbl) : 0;
+}
+
+void 
+sam_tbl_destroy(void *h)
+{
+  khash_t(str) *tbl = (khash_t(str)*)h;
+  kh_destroy(str, tbl);
+}
+
+// NB: deep copy
+// NB: not implemented
+int32_t
+sam_header_merge_into(sam_header_t *dst, const sam_header_t *src)
+{
+  khash_t(records) *hash_dst, *hash_src;
+  khiter_t i, j;
+  if(NULL == src) return 0;
+
+  hash_dst = (khash_t(records)*)dst->hash;
+  hash_src = (khash_t(records)*)src->hash;
+
+  for(i = kh_begin(hash_dst); i != kh_end(hash_dst); i++) { 
+      //sam_header_records_t *records_dst = kh_value(hash_dst, i);
+      for(j = kh_begin(hash_src); j != kh_end(hash_src); j++) {
+          //sam_header_records_t *records_src = kh_value(hash_src, j);
+          // TODO
+      }
+  }
+  return 1;
+}
+
+// NB: not implemented
+sam_header_t*
+sam_header_merge(int n, const sam_header_t **headers)
+{
+  int32_t i;
+  sam_header_t *out = NULL;
+
+  if(n < 2) return NULL;
+
+  // clone the first one
+  out = sam_header_clone(headers[0]);
+
+  // merge the rest
+  for(i=0;i<n;i++) {
+      const sam_header_t *cur = headers[i];
+
+      sam_header_merge_into(out, cur);
+  }
+
+  return NULL;
+}
+
+int32_t
+sam_header_check(sam_header_t *h)
+{
+  khash_t(records) *hash = NULL;
+  khiter_t k;
+  if(NULL == h) return 0;
+  
+  hash = (khash_t(records)*)h->hash;
+  for(k = kh_begin(hash); k != kh_end(hash); ++k) { // go through the record types
+      if (kh_exist(hash, k)) { // exist
+          sam_header_records_t *records = kh_value(hash, k);
+          // check records
+          if(0 == sam_header_records_check(records)) {
+              return 0;
+          }
+      }
+  }
+
+  return 1;
+}
+
+sam_header_t*
+sam_header_parse2(const char *text)
+{
+  sam_header_t *h = NULL;
+  const char *p;
+  char *buf = NULL;
+  size_t nbuf = 0;
+
+  h = sam_header_init();
+
+  if(NULL == text) return h;
+
+  p = text;
+  while(NULL != (p = nextline(&buf, &nbuf, p))) {
+      sam_header_record_t *record = NULL;
+      record = sam_header_record_parse(buf);
+      if(NULL != record) {
+          // TODO: test with a large # of header records...
+          if(0 == sam_header_add_record(h, record, record->tag)) {
+              debug("[%s] error adding a record, trying to continue...\n", __func__);
+          }
+      }
+  }
+  free(buf);
+  buf = NULL;
+
+  // check the consistency of records
+  if(0 == sam_header_check(h)) {
+      sam_header_destroy(h);
+      return NULL;
+  }
+
+  return h;
+}
+
+static void
+sam_header_write_add(char **text, size_t *text_len, size_t *text_mem, const char *value, int32_t value_len)
+{
+  if(value_len <= 0) return;
+  // more memory
+  while((*text_mem) < value_len + (*text_len)) {
+      (*text_mem) = ((*text_mem) < 32) ? 32 : ((*text_mem) << 1);
+      (*text) = realloc((*text), sizeof(char) * (*text_mem));
+  }
+  // copy over
+  memcpy((*text) + (*text_len), value, value_len);
+  (*text_len) += value_len;
+}
+
+char*
+sam_header_write(const sam_header_t *h)
+{
+  char *text = NULL;
+  int32_t i, j;
+  size_t len = 0, mem = 0;
+  khash_t(str) *hash = NULL;
+  khiter_t k;
+
+  for(i=SAM_HEADER_TYPE_HD;i<SAM_HEADER_TYPE_NUM;i++) {
+      sam_header_records_t *records = NULL;
+      records = sam_header_get_records(h, SAM_HEADER_TYPE_TAGS[i]);
+      if(NULL == records) continue;
+      for(j=0;j<records->n;j++) { // for each line
+          sam_header_record_t *record = records->records[j];
+          // TODO: support non-standard types
+          switch(record->type) {
+            case SAM_HEADER_TYPE_HD:
+            case SAM_HEADER_TYPE_SQ:
+            case SAM_HEADER_TYPE_RG:
+            case SAM_HEADER_TYPE_PG:
+            case SAM_HEADER_TYPE_CO:
+            case SAM_HEADER_TYPE_NUM:
+              break;
+            default:
+              continue;
+              break;
+          }
+          sam_header_write_add(&text, &len, &mem, "@", 1);
+          sam_header_write_add(&text, &len, &mem, SAM_HEADER_TYPE_TAGS[record->type], 2);
+
+          // individual tags
+          hash = (khash_t(str)*)record->hash;
+          for(k = kh_begin(hash); k != kh_end(hash); ++k) {
+              if (kh_exist(hash, k)) {
+                  const char *key = NULL, *value = NULL;
+                  key = kh_key(hash, k).tag;
+                  value = kh_value(hash, k);
+                  sam_header_write_add(&text, &len, &mem, "\t", 1);
+                  sam_header_write_add(&text, &len, &mem, key, strlen(key));
+                  sam_header_write_add(&text, &len, &mem, ":", 1);
+                  sam_header_write_add(&text, &len, &mem, value, strlen(value));
+              }
+          }
+
+          sam_header_write_add(&text, &len, &mem, "\n", 1);
+      }
+  }
+
+  // resize
+  if(len+1 < mem) {
+      text = realloc(text, sizeof(char) * (len + 1));
+      mem = len + 1;
+  }
+
+  return text;
+}

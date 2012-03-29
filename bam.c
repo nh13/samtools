@@ -72,7 +72,7 @@ void bam_header_destroy(bam_header_t *header)
 		free(header->target_len);
 	}
 	free(header->text);
-	if (header->dict) sam_header_free(header->dict);
+	if (header->header) sam_header_destroy(header->header);
 	if (header->rg2lib) sam_tbl_destroy(header->rg2lib);
 	bam_destroy_header_hash(header);
 	free(header);
@@ -369,8 +369,8 @@ int bam_validate1(const bam_header_t *header, const bam1_t *b)
 const char *bam_get_library(bam_header_t *h, const bam1_t *b)
 {
 	const uint8_t *rg;
-	if (h->dict == 0) h->dict = sam_header_parse2(h->text);
-	if (h->rg2lib == 0) h->rg2lib = sam_header2tbl(h->dict, "RG", "ID", "LB");
+        if (h->header == 0) h->header = sam_header_parse2(h->text);
+	if (h->rg2lib == 0) h->rg2lib = sam_header_table(h->header, "RG", "ID", "LB");
 	rg = bam_aux_get(b, "RG");
 	return (rg == 0)? 0 : sam_tbl_get(h->rg2lib, (const char*)(rg + 1));
 }
