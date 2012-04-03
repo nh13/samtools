@@ -207,7 +207,6 @@ char *bam_aux2Z(const uint8_t *s)
 
 static inline void *bam_auxB2_helper(const uint8_t *s, int32_t *l, char type)
 {
-  void *p = NULL;
   size_t size;
   if(s == NULL) return NULL;
   if('B' != *s) return NULL;
@@ -217,10 +216,7 @@ static inline void *bam_auxB2_helper(const uint8_t *s, int32_t *l, char type)
   s++;
   *l = (*(int32_t*)(s));
   s += 4;
-  p = malloc(size * (*l));
-  if(NULL == p) return 0;
-  memcpy(p, s, size * (*l));
-  return p;
+  return (void*)s;
 }
 
 int8_t *bam_auxB2c(const uint8_t *s, int32_t *l)
