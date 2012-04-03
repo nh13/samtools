@@ -35,6 +35,7 @@ typedef int8_t bgzf_byte_t;
 
 #define DEFAULT_BLOCK_SIZE 64 * 1024
 #define MAX_BLOCK_SIZE 64 * 1024
+#include <sys/types.h>
 
 #define BLOCK_HEADER_LENGTH 18
 #define BLOCK_FOOTER_LENGTH 8
