@@ -49,6 +49,7 @@
 
 #ifndef BAM_LITE
 #define BAM_VIRTUAL_OFFSET16
+#ifndef _PBGZF_USE 
 #include "bgzf.h"
 /*! @abstract BAM file handler */
 typedef BGZF *bamFile;
@@ -59,6 +60,28 @@ typedef BGZF *bamFile;
 #define bam_write(fp, buf, size) bgzf_write(fp, buf, size)
 #define bam_tell(fp) bgzf_tell(fp)
 #define bam_seek(fp, pos, dir) bgzf_seek(fp, pos, dir)
+#define bam_check_EOF(fp) bgzf_check_EOF(fp)
+#define bam_flush(fp) bgzf_flush(fp)
+#define bam_flush(fp) bgzf_flush(fp)
+#define bam_flush_try(fp, size) bgzf_flush_try(fp, size)
+#define bam_set_cache_size(fp, size) bgzf_set_cache_size(fp, size)
+#else
+#include "pbgzip/pbgzf.h"
+/*! @abstract BAM file handler */
+typedef PBGZF *bamFile;
+#define bam_set_num_threads_per(n) pbgzf_set_num_threads_per(n)
+#define bam_open(fn, mode) pbgzf_open(fn, mode)
+#define bam_dopen(fd, mode) pbgzf_fdopen(fd, mode)
+#define bam_close(fp) pbgzf_close(fp)
+#define bam_read(fp, buf, size) pbgzf_read(fp, buf, size)
+#define bam_write(fp, buf, size) pbgzf_write(fp, buf, size)
+#define bam_tell(fp) pbgzf_tell(fp)
+#define bam_seek(fp, pos, dir) pbgzf_seek(fp, pos, dir)
+#define bam_check_EOF(fp) pbgzf_check_EOF(fp)
+#define bam_flush(fp) pbgzf_flush(fp)
+#define bam_flush_try(fp, size) pbgzf_flush_try(fp, size)
+#define bam_set_cache_size(fp, size) pbgzf_set_cache_size(fp, size)
+#endif
 #else
 #define BAM_TRUE_OFFSET
 #include <zlib.h>

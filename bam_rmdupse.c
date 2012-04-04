@@ -13,7 +13,7 @@ typedef struct {
 } elem_t, *elem_p;
 #define __free_elem(p) bam_destroy1((p)->data.b)
 KLIST_INIT(q, elem_t, __free_elem)
-typedef klist_t(q) queue_t;
+typedef klist_t(q) rmdup_queue_t;
 
 KHASH_MAP_INIT_INT(best, elem_p)
 typedef khash_t(best) besthash_t;
@@ -48,7 +48,7 @@ static inline int sum_qual(const bam1_t *b)
 	return q;
 }
 
-static inline elem_t *push_queue(queue_t *queue, const bam1_t *b, int endpos, int score)
+static inline elem_t *push_queue(rmdup_queue_t *queue, const bam1_t *b, int endpos, int score)
 {
 	elem_t *p = kl_pushp(q, queue);
 	p->discarded = 0;
@@ -66,7 +66,7 @@ static void clear_besthash(besthash_t *h, int32_t pos)
 			kh_del(best, h, k);
 }
 
-static void dump_alignment(samfile_t *out, queue_t *queue, int32_t pos, khash_t(lib) *h)
+static void dump_alignment(samfile_t *out, rmdup_queue_t *queue, int32_t pos, khash_t(lib) *h)
 {
 	if (queue->size > QUEUE_CLEAR_SIZE || pos == MAX_POS) {
 		khint_t k;
@@ -96,7 +96,7 @@ static void dump_alignment(samfile_t *out, queue_t *queue, int32_t pos, khash_t(
 void bam_rmdupse_core(samfile_t *in, samfile_t *out, int force_se)
 {
 	bam1_t *b;
-	queue_t *queue;
+	rmdup_queue_t *queue;
 	khint_t k;
 	int last_tid = -2;
 	khash_t(lib) *aux;

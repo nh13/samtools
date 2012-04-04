@@ -200,7 +200,7 @@ tview_t *tv_init(const char *fn, const char *fn_fa)
 	tview_t *tv = (tview_t*)calloc(1, sizeof(tview_t));
 	tv->is_dot = 1;
 	tv->fp = bam_open(fn, "r");
-	bgzf_set_cache_size(tv->fp, 8 * 1024 *1024);
+	bam_set_cache_size(tv->fp, 8 * 1024 *1024);
 	assert(tv->fp);
 	tv->header = bam_header_read(tv->fp);
 	tv->idx = bam_index_load(fn);

@@ -72,23 +72,23 @@ all:bam_cat
 
 int bam_cat(int nfn, char * const *fn, const bam_header_t *h, const char* outbam)
 {
-    BGZF *fp;
+    bamFile out;
     FILE* fp_file;
     uint8_t *buf;
     uint8_t ebuf[BGZF_EMPTY_BLOCK_SIZE];
     const int es=BGZF_EMPTY_BLOCK_SIZE;
     int i;
     
-    fp = strcmp(outbam, "-")? bgzf_open(outbam, "w") : bgzf_fdopen(fileno(stdout), "w");
-    if (fp == 0) {
+    out = strcmp(outbam, "-")? bam_open(outbam, "w") : bam_dopen(fileno(stdout), "w");
+    if (out == 0) {
         fprintf(stderr, "[%s] ERROR: fail to open output file '%s'.\n", __func__, outbam);
         return 1;
     }
-    if (h) bam_header_write(fp, h);
+    if (h) bam_header_write(out, h);
     
     buf = (uint8_t*) malloc(BUF_SIZE);
     for(i = 0; i < nfn; ++i){
-        BGZF *in;
+        bamFile in;
         bam_header_t *old;
         int len,j;
         
@@ -100,20 +100,41 @@ int bam_cat(int nfn, char * const *fn, const bam_header_t *h, const char* outbam
         if (in->open_mode != 'r') return -1;
         
         old = bam_header_read(in);
-		if (h == 0 && i == 0) bam_header_write(fp, old);
-        
+        if (h == 0 && i == 0) bam_header_write(out, old);
+
+        bam_flush(out); // flush after the header
+        /*
         if (in->block_offset < in->block_length) {
-            bgzf_write(fp, in->uncompressed_block + in->block_offset, in->block_length - in->block_offset);
-            bgzf_flush(fp);
+            bgzf_write(out, in->uncompressed_block + in->block_offset, in->block_length - in->block_offset);
+            bgzf_flush(out);
         }
+        */
         
         j=0;
+#ifdef _PBGZF_USE
+		int64_t pos = bam_tell(in);
+		bam_close(in);
+		in = NULL;
+		BGZF *fp_bgzf_in = bgzf_open(fn[i], "r");
+		if(NULL == fp_bgzf_in) {
+            fprintf(stderr, "[%s] ERROR: fail to open file '%s'.\n", __func__, fn[i]);
+			return 1;
+		}
+		if(bgzf_seek(fp_bgzf_in, pos, SEEK_SET) < 0) {
+			fprintf(stderr, "[%s] fail to seek.\n", __func__);
+			return 1;
+		}
+		BGZF *fp_bgzf_out = out->w->fp_bgzf;
+#else
+        BGZF *fp_bgzf_in = in;
+        BGZF *fp_bgzf_out = out;
+#endif
 #ifdef _USE_KNETFILE
-        fp_file=fp->x.fpw;
-        while ((len = knet_read(in->x.fpr, buf, BUF_SIZE)) > 0) {
+        fp_file=fp_bgzf_out->x.fpw;
+        while ((len = knet_read(fp_bgzf_in->x.fpr, buf, BUF_SIZE)) > 0) {
 #else  
-        fp_file=fp->file;
-        while (!feof(in->file) && (len = fread(buf, 1, BUF_SIZE, in->file)) > 0) {
+        fp_file=fp_bgzf_out->file;
+        while (!feof(fp_bgzf_in->file) && (len = fread(buf, 1, BUF_SIZE, fp_bgzf_in->file)) > 0) {
 #endif
             if(len<es){
                 int diff=es-len;
@@ -145,10 +166,13 @@ int bam_cat(int nfn, char * const *fn, const bam_header_t *h, const char* outbam
             }
         }
         bam_header_destroy(old);
-        bgzf_close(in);
+#ifdef _PBGZF_USE
+		bgzf_close(fp_bgzf_in);
+#endif
+        bam_close(in);
     }
     free(buf);
-    bgzf_close(fp);
+    bam_close(out);
     return 0;
 }
 
