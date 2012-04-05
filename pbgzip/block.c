@@ -9,7 +9,7 @@ block_t*
 block_init()
 {
   block_t *b = calloc(1, sizeof(block_t));
-  b->buffer = malloc(sizeof(int8_t) * MAX_BLOCK_SIZE);
+  b->buffer = malloc(sizeof(int8_t) * BGZF_MAX_BLOCK_SIZE);
   b->id = -1;
   return b;
 }

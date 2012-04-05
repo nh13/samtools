@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include "knetfile.h"
 #include "bgzf.h"
 #include "bam.h"
 
@@ -20,19 +21,19 @@ int bam_reheader(const char *fn_in, const bam_header_t *h, int fd)
 	bamFile in, out;
 	bam_header_t *old;
 	int len;
-	uint8_t *buf;
+        uint8_t *buf;
 
 	in = bam_reheader_open_input(fn_in, "r");
 	if (NULL == in) {
 		fprintf(stderr, "[%s] fail to open file %s.\n", __func__, fn_in);
 		return 1;
 	}
-	if (in->open_mode != 'r') return -1;
+	if (in->is_write) return -1;
 	buf = malloc(BUF_SIZE);
 	old = bam_header_read(in);
 	out = bam_dopen(fd, "w");
 	bam_header_write(out, h);
-    bam_flush(out); // flush after the header
+        bam_flush(out); // flush after the header
         /*
 	if (in->block_offset < in->block_length) {
 		bgzf_write(out, in->uncompressed_block + in->block_offset, in->block_length - in->block_offset);
@@ -57,13 +58,8 @@ int bam_reheader(const char *fn_in, const bam_header_t *h, int fd)
 	BGZF *fp_bgzf_in = in;
 	BGZF *fp_bgzf_out = out;
 #endif
-#ifdef _USE_KNETFILE
-	while ((len = knet_read(fp_bgzf_in->x.fpr, buf, BUF_SIZE)) > 0)
-		fwrite(buf, 1, len, fp_bgzf_out->x.fpw);
-#else
-	while (!feof(fp_bgzf_in->file) && (len = fread(buf, 1, BUF_SIZE, fp_bgzf_in->file)) > 0)
-		fwrite(buf, 1, len, fp_bgzf_out->file);
-#endif
+	while ((len = bgzf_read(fp_bgzf_in->fp, buf, BUF_SIZE)) > 0)
+		fwrite(buf, 1, len, fp_bgzf_out->fp);
 	free(buf);
 	bam_close(out);
 #ifdef _PBGZF_USE

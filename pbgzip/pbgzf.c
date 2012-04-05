@@ -232,7 +232,7 @@ pbgzf_join(PBGZF *fp)
 static PBGZF*
 pbgzf_init(int fd, const char* __restrict mode)
 {
-  int i, compress_level = -1, compress_type = 0;
+  int i, compress_level = -1, compress_type = 0, is_write;
   char open_mode;
   PBGZF *fp = NULL;
 
@@ -245,8 +245,10 @@ pbgzf_init(int fd, const char* __restrict mode)
   // set read/write
   if (strchr(mode, 'r') || strchr(mode, 'R')) { /* The reading mode is preferred. */
       open_mode = 'r';
+      is_write = 0;
   } else if (strchr(mode, 'w') || strchr(mode, 'W')) {
       open_mode = 'w';
+      is_write = 1;
   }
   else {
       return NULL;
@@ -272,6 +274,7 @@ pbgzf_init(int fd, const char* __restrict mode)
 
   // queues
   fp->open_mode = open_mode;
+  fp->is_write = is_write;
   if(num_threads_per_pbgzf <= 0) {
       fp->num_threads = detect_cpus(); 
   }
@@ -354,7 +357,7 @@ pbgzf_read(PBGZF* fp, void* data, int length)
   if(fp->eof == 1) return 0;
 
   int bytes_read = 0, available = 0;
-  bgzf_byte_t* output = data;
+  int8_t* output = data;
   while(bytes_read < length) {
       int copy_length;
 
@@ -371,9 +374,9 @@ pbgzf_read(PBGZF* fp, void* data, int length)
           break;
       }
 
-      bgzf_byte_t *buffer;
+      int8_t *buffer;
       copy_length = pbgzf_min(length-bytes_read, available);
-      buffer = (bgzf_byte_t*)fp->block->buffer;
+      buffer = (int8_t*)fp->block->buffer;
       memcpy(output, buffer + fp->block->block_offset, copy_length);
       fp->block->block_offset += copy_length;
       output += copy_length;
@@ -393,11 +396,7 @@ pbgzf_read(PBGZF* fp, void* data, int length)
       } // TODO: otherwise EOF?
       if(NULL == fp->block) {
           fp->block_offset = 0;
-#ifdef _USE_KNETFILE
-          fp->block_address = knet_tell(fp->r->fp_bgzf->x.fpr);
-#else
-          fp->block_address = ftello(fp->r->fp_bgzf->file);
-#endif
+          fp->block_address = bgzf_tell(fp->r->fp_bgzf);
       }
       else {
           fp->block_offset = fp->block->block_offset;
@@ -417,7 +416,7 @@ pbgzf_read(PBGZF* fp, void* data, int length)
 int 
 pbgzf_write(PBGZF* fp, const void* data, int length)
 {
-  const bgzf_byte_t *input = data;
+  const int8_t *input = data;
   int block_length, bytes_written;
 
   if(fp->open_mode != 'w') {
@@ -427,7 +426,7 @@ pbgzf_write(PBGZF* fp, const void* data, int length)
 
   if(NULL == fp->block) {
       fp->block = block_init();
-      fp->block->block_length = MAX_BLOCK_SIZE;
+      fp->block->block_length = BGZF_MAX_BLOCK_SIZE;
   }
 
   input = data;
@@ -435,7 +434,7 @@ pbgzf_write(PBGZF* fp, const void* data, int length)
   bytes_written = 0;
   while (bytes_written < length) {
       int copy_length = pbgzf_min(block_length - fp->block->block_offset, length - bytes_written);
-      bgzf_byte_t* buffer = fp->block->buffer;
+      int8_t* buffer = fp->block->buffer;
       memcpy(buffer + fp->block->block_offset, input, copy_length);
       fp->block->block_offset += copy_length;
       fp->block_offset += copy_length;
@@ -454,7 +453,7 @@ pbgzf_write(PBGZF* fp, const void* data, int length)
           fp->block = NULL;
           fp->block = block_init();
           fp->block_offset = 0;
-          fp->block->block_length = MAX_BLOCK_SIZE;
+          fp->block->block_length = BGZF_MAX_BLOCK_SIZE;
           fp->n_blocks++;
       }
   }
@@ -570,7 +569,7 @@ pbgzf_flush_aux(PBGZF* fp, int32_t restart)
       // reset block
       fp->block = block_init();
       fp->block_offset = 0;
-      fp->block->block_length = MAX_BLOCK_SIZE;
+      fp->block->block_length = BGZF_MAX_BLOCK_SIZE;
   }
   else {
       // wait until the input is empty
@@ -636,7 +635,7 @@ pbgzf_flush_try(PBGZF *fp, int size)
           // reset block
           fp->block = block_init();
           fp->block_offset = 0;
-          fp->block->block_length = MAX_BLOCK_SIZE;
+          fp->block->block_length = BGZF_MAX_BLOCK_SIZE;
       }
   }
   return -1;

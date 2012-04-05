@@ -89,7 +89,11 @@ static void swap_header_text(bam_header_t *h1, bam_header_t *h2)
   @discussion Padding information may NOT correctly maintained. This
   function is NOT thread safe.
  */
+#ifndef _PBGZF_USE 
 int bam_merge_core2(int by_qname, const char *out, const char *headers, int n, char * const *fn, int flag, const char *reg, int n_threads, int level)
+#else
+int bam_merge_core2(int by_qname, const char *out, const char *headers, int n, char * const *fn, int flag, const char *reg, int level)
+#endif
 {
 	bamFile fpout, *fp;
 	heap1_t *heap;
@@ -222,7 +226,9 @@ int bam_merge_core2(int by_qname, const char *out, const char *headers, int n, c
 	}
 	bam_header_write(fpout, hout);
 	bam_header_destroy(hout);
-	//if (!(flag & MERGE_UNCOMP)) bgzf_mt(fpout, n_threads, 256);
+#ifndef _PBGZF_USE 
+	if (!(flag & MERGE_UNCOMP)) bgzf_mt(fpout, n_threads, 256);
+#endif
 
 	ks_heapmake(heap, n, heap);
 	while (heap->pos != HEAP_EMPTY) {
@@ -259,12 +265,20 @@ int bam_merge_core2(int by_qname, const char *out, const char *headers, int n, c
 
 int bam_merge_core(int by_qname, const char *out, const char *headers, int n, char * const *fn, int flag, const char *reg)
 {
+#ifndef _PBGZF_USE 
 	return bam_merge_core2(by_qname, out, headers, n, fn, flag, reg, 0, -1);
+#else
+	return bam_merge_core2(by_qname, out, headers, n, fn, flag, reg, -1);
+#endif
 }
 
 int bam_merge(int argc, char *argv[])
 {
+#ifndef _PBGZF_USE 
 	int c, is_by_qname = 0, flag = 0, ret = 0, n_threads = 0, level = -1;
+#else
+	int c, is_by_qname = 0, flag = 0, ret = 0, level = -1;
+#endif
 	char *fn_headers = NULL, *reg = 0;
 
 	while ((c = getopt(argc, argv, "h:nru1R:f@:l:")) >= 0) {
@@ -277,7 +291,9 @@ int bam_merge(int argc, char *argv[])
 		case 'u': flag |= MERGE_UNCOMP; break;
 		case 'R': reg = strdup(optarg); break;
 		case 'l': level = atoi(optarg); break;
+#ifndef _PBGZF_USE 
 		case '@': n_threads = atoi(optarg); break;
+#endif
 		}
 	}
 	if (optind + 2 >= argc) {
@@ -289,7 +305,9 @@ int bam_merge(int argc, char *argv[])
 		fprintf(stderr, "         -f       overwrite the output BAM if exist\n");
 		fprintf(stderr, "         -1       compress level 1\n");
 		fprintf(stderr, "         -l INT   compression level, from 0 to 9 [-1]\n");
+#ifndef _PBGZF_USE 
 		fprintf(stderr, "         -@ INT   number of BAM compression threads [0]\n");
+#endif
 		fprintf(stderr, "         -R STR   merge file in the specified region STR [all]\n");
 		fprintf(stderr, "         -h FILE  copy the header in FILE to <out.bam> [in1.bam]\n\n");
 		fprintf(stderr, "Note: Samtools' merge does not reconstruct the @RG dictionary in the header. Users\n");
@@ -305,7 +323,11 @@ int bam_merge(int argc, char *argv[])
 			return 1;
 		}
 	}
+#ifndef _PBGZF_USE 
 	if (bam_merge_core2(is_by_qname, argv[optind], fn_headers, argc - optind - 1, argv + optind + 1, flag, reg, n_threads, level) < 0) ret = 1;
+#else
+	if (bam_merge_core2(is_by_qname, argv[optind], fn_headers, argc - optind - 1, argv + optind + 1, flag, reg, level) < 0) ret = 1;
+#endif
 	free(reg);
 	free(fn_headers);
 	return ret;
@@ -383,7 +405,6 @@ sort_aux_core(int k, bam1_p *buf, int sort_type)
   }
 }
 
-
 typedef struct {
 	size_t buf_len;
 	const char *prefix;
@@ -393,14 +414,20 @@ typedef struct {
 	int index;
 } worker_t;
 
+#ifndef _PBGZF_USE 
 static void write_buffer(const char *fn, const char *mode, size_t l, bam1_p *buf, const bam_header_t *h, int n_threads)
+#else
+static void write_buffer(const char *fn, const char *mode, size_t l, bam1_p *buf, const bam_header_t *h)
+#endif
 {
 	size_t i;
 	bamFile fp;
 	fp = strcmp(fn, "-")? bam_open(fn, mode) : bam_dopen(fileno(stdout), mode);
 	if (fp == 0) return;
 	bam_header_write(fp, h);
-	//if (n_threads > 1) bgzf_mt(fp, n_threads, 256);
+#ifndef _PBGZF_USE 
+	if (n_threads > 1) bgzf_mt(fp, n_threads, 256);
+#endif
 	for (i = 0; i < l; ++i)
 		bam_write1_core(fp, &buf[i]->core, buf[i]->data_len, buf[i]->data);
 	bam_close(fp);
@@ -413,7 +440,11 @@ static void *worker(void *data)
         sort_aux_core(w->buf_len, w->buf, w->sort_type);
 	name = (char*)calloc(strlen(w->prefix) + 20, 1);
 	sprintf(name, "%s.%.4d.bam", w->prefix, w->index);
+#ifndef _PBGZF_USE 
 	write_buffer(name, "w1", w->buf_len, w->buf, w->h, 0);
+#else
+	write_buffer(name, "w1", w->buf_len, w->buf, w->h);
+#endif
 	free(name);
 	return 0;
 }
@@ -496,6 +527,11 @@ void bam_sort_core_ext(int is_by_qname, const char *fn, const char *prefix, size
 		if (buf[k] == 0) buf[k] = (bam1_t*)calloc(1, sizeof(bam1_t));
 		b = buf[k];
 		if ((ret = bam_read1(fp, b)) < 0) break;
+		if (b->data_len < b->m_data>>2) { // shrink
+			b->m_data = b->data_len;
+			kroundup32(b->m_data);
+			b->data = realloc(b->data, b->m_data);
+		}
 		mem += sizeof(bam1_t) + b->m_data + sizeof(void*) + sizeof(void*); // two sizeof(void*) for the data allocated to pointer arrays
 		++k;
 		if (mem >= max_mem) {
@@ -515,7 +551,11 @@ void bam_sort_core_ext(int is_by_qname, const char *fn, const char *prefix, size
 		strcpy(mode, "w");
 		if (level >= 0) sprintf(mode + 1, "%d", level < 9? level : 9);
                 sort_aux_core(k, buf, sort_type);
+#ifndef _PBGZF_USE 
 		write_buffer(fnout, mode, k, buf, header, n_threads);
+#else
+		write_buffer(fnout, mode, k, buf, header);
+#endif
 	} else { // then merge
 		char **fns;
 		n_files = sort_blocks(n_files, k, buf, prefix, header, n_threads, sort_type);
@@ -525,7 +565,11 @@ void bam_sort_core_ext(int is_by_qname, const char *fn, const char *prefix, size
 			fns[i] = (char*)calloc(strlen(prefix) + 20, 1);
 			sprintf(fns[i], "%s.%.4d.bam", prefix, i);
 		}
+#ifndef _PBGZF_USE 
 		bam_merge_core2(is_by_qname, fnout, 0, n_files, fns, 0, 0, n_threads, level);
+#else
+		bam_merge_core2(is_by_qname, fnout, 0, n_files, fns, 0, 0, level);
+#endif
 		for (i = 0; i < n_files; ++i) {
 			unlink(fns[i]);
 			free(fns[i]);
@@ -576,14 +620,16 @@ int bam_sort(int argc, char *argv[])
 		fprintf(stderr, "Options: -n        sort by read name\n");
 		fprintf(stderr, "         -o        final output to stdout\n");
 		fprintf(stderr, "         -l INT    compression level, from 0 to 9 [-1]\n");
-		fprintf(stderr, "         -@ INT    number of sorting threads [1]\n");
-		fprintf(stderr, "         -m INT    max memory per thread; suffix K/M/G recognized [768M]\n");
                 fprintf(stderr, "         -s       sorting algorithm type [0]\n");
                 fprintf(stderr, "                    0: mergesort\n");
                 fprintf(stderr, "                    1: introsort\n");
                 fprintf(stderr, "                    2: combsort\n");
                 fprintf(stderr, "                    3: heapsort\n");
+#ifndef _PBGZF_USE 
 		fprintf(stderr, "         -@ INT    number of sorting and compression threads [1]\n");
+#else
+		fprintf(stderr, "         -@ INT    number of sorting threads [1]\n");
+#endif
 		fprintf(stderr, "         -m INT    max memory per thread; suffix K/M/G recognized [768M]\n");
 		fprintf(stderr, "\n");
 		return 1;

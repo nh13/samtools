@@ -11,7 +11,7 @@
 #include "pbgzf.h"
 #include "reader.h"
 
-static const int WINDOW_SIZE = MAX_BLOCK_SIZE;
+static const int WINDOW_SIZE = BGZF_MAX_BLOCK_SIZE;
 
 reader_t*
 reader_init(int fd, queue_t *input, uint8_t compress, block_pool_t *pool)
@@ -34,17 +34,10 @@ reader_init(int fd, queue_t *input, uint8_t compress, block_pool_t *pool)
 static int
 reader_read_block(BGZF* fp, block_t *b)
 {
-  bgzf_byte_t header[BLOCK_HEADER_LENGTH];
+  uint8_t header[BLOCK_HEADER_LENGTH];
   int count, size = 0, remaining;
-#ifdef _USE_KNETFILE
-  int64_t block_address = knet_tell(fp->x.fpr);
-  //if (load_block_from_cache(fp, block_address)) return 0;
-  count = knet_read(fp->x.fpr, header, sizeof(header));
-#else
-  int64_t block_address = ftello(fp->file);
-  //if (load_block_from_cache(fp, block_address)) return 0;
-  count = fread(header, 1, sizeof(header), fp->file);
-#endif
+  int64_t block_address = _bgzf_tell(fp->fp);
+  count = _bgzf_read(fp->fp, header, sizeof(header));
   if (count == 0) {
       fp->block_length = b->block_length = 0;
       return 0;
@@ -59,14 +52,10 @@ reader_read_block(BGZF* fp, block_t *b)
       return -1;
   }
   b->block_length = unpackInt16((uint8_t*)&header[16]) + 1;
-  bgzf_byte_t* compressed_block = (bgzf_byte_t*) b->buffer;
+  int8_t* compressed_block = (int8_t*) b->buffer;
   memcpy(compressed_block, header, BLOCK_HEADER_LENGTH);
   remaining = b->block_length - BLOCK_HEADER_LENGTH;
-#ifdef _USE_KNETFILE
-  count = knet_read(fp->x.fpr, &compressed_block[BLOCK_HEADER_LENGTH], remaining);
-#else
-  count = fread(&compressed_block[BLOCK_HEADER_LENGTH], 1, remaining, fp->file);
-#endif
+  count = _bgzf_read(fp->fp, &compressed_block[BLOCK_HEADER_LENGTH], remaining);
   if (count != remaining) {
       fprintf(stderr, "read failed\n");
       return -1;

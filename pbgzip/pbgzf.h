@@ -36,6 +36,7 @@ typedef struct {
     block_pool_t *pool;
 
     char open_mode;
+    int32_t is_write;
     int32_t queue_size;
     int32_t num_threads;
     int32_t block_offset; // for pbgzf_flush_tr

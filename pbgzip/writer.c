@@ -61,11 +61,7 @@ static size_t
 writer_write_block2(BGZF* fp, block_t *b)
 {
   size_t count;
-#ifdef _USE_KNETFILE
-  count = fwrite(b->buffer, 1, b->block_length, fp->x.fpw);
-#else
-  count = fwrite(b->buffer, 1, b->block_length, fp->file);
-#endif
+  count = fwrite(b->buffer, 1, b->block_length, fp->fp);
   if (count != b->block_length) {
       fprintf(stderr, "writer fwrite: bug encountered\n");
       return -1;

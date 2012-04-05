@@ -128,13 +128,20 @@ int main_samview(int argc, char *argv[])
 {
 	int c, is_header = 0, is_header_only = 0, is_bamin = 1, ret = 0, compress_level = -1, is_bamout = 0, is_count = 0;
 	int of_type = BAM_OFDEC, is_long_help = 0;
+#ifndef _PBGZF_USE 
+        int n_threads = 0;
+#endif
 	int count = 0;
 	samfile_t *in = 0, *out = 0;
 	char in_mode[5], out_mode[5], *fn_out = 0, *fn_list = 0, *fn_ref = 0, *fn_rg = 0, *q;
 
 	/* parse command-line options */
 	strcpy(in_mode, "r"); strcpy(out_mode, "w");
+#ifndef _PBGZF_USE 
 	while ((c = getopt(argc, argv, "SbBct:h1Ho:q:f:F:ul:r:xX?T:R:L:s:Q:@:m:")) >= 0) {
+#else
+	while ((c = getopt(argc, argv, "SbBct:h1Ho:q:f:F:ul:r:xX?T:R:L:s:Q:m:")) >= 0) {
+#endif
 		switch (c) {
 		case 's':
 			if ((g_subsam_seed = strtol(optarg, &q, 10)) != 0) {
@@ -166,6 +173,9 @@ int main_samview(int argc, char *argv[])
 		case 'T': fn_ref = strdup(optarg); is_bamin = 0; break;
 		case 'B': bam_no_B = 1; break;
 		case 'Q': g_qual_scale = atoi(optarg); break;
+#ifndef _PBGZF_USE 
+		case '@': n_threads = strtol(optarg, 0, 0); break;
+#endif
 		default: return usage(is_long_help);
 		}
 	}
@@ -223,6 +233,9 @@ int main_samview(int argc, char *argv[])
 		ret = 1;
 		goto view_end;
 	}
+#ifndef _PBGZF_USE 
+	if (n_threads > 1) samthreads(out, n_threads, 256); 
+#endif
 	if (is_header_only) goto view_end; // no need to print alignments
 
 	if (argc == optind + 1) { // convert/print the entire file
@@ -303,6 +316,7 @@ static int usage(int is_long_help)
 	fprintf(stderr, "         -X       output FLAG in string (samtools-C specific)\n");
 	fprintf(stderr, "         -c       print only the count of matching records\n");
 	fprintf(stderr, "         -B       collapse the backward CIGAR operation\n");
+	fprintf(stderr, "         -@ INT   number of BAM compression threads [0]\n");
 	fprintf(stderr, "         -L FILE  output alignments overlapping the input BED FILE [null]\n");
 	fprintf(stderr, "         -t FILE  list of reference names and lengths (force -S) [null]\n");
 	fprintf(stderr, "         -T FILE  reference sequence file (force -S) [null]\n");
