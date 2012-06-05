@@ -870,9 +870,7 @@ extern void bam_init_header_hash(bam_header_t *header);
 bam_header_t*
 sam_header_to_bam_header(bam_header_t *bh)
 {
-  int32_t i;
   sam_header_t *sh = NULL;
-  sam_header_records_t *records = NULL;
 
   // Grab the SAM Header
   sh = bh->header;
