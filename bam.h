@@ -195,7 +195,7 @@ typedef struct {
   @field  l_aux      length of auxiliary data
   @field  data_len   current length of bam1_t::data
   @field  m_data     maximum length of bam1_t::data
-  @field  data       all variable-length data, concatenated; structure: cigar-qname-seq-qual-aux
+  @field  data       all variable-length data, concatenated; structure: qname-cigar-seq-qual-aux
 
   @discussion Notes:
  
