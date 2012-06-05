@@ -807,6 +807,7 @@ sam_header_record_write(const sam_header_record_t *record, char **text, size_t *
   }
 
   sam_header_write_add(text, text_len, text_mem, "\n", 1);
+  (*text)[(*text_len)]='\0';
 }
 
 static void
@@ -858,6 +859,9 @@ sam_header_write(const sam_header_t *h)
       mem = len + 1;
   }
 
+  // EOL
+  text[len] = '\0';
+
   return text;
 }
 
@@ -885,29 +889,8 @@ sam_header_to_bam_header(bam_header_t *bh)
   bh->text = sam_header_write(sh);
   bh->l_text = strlen(bh->text);
 
-  // # of targets
-  records = sam_header_get_records(sh, "SQ");
-  if(NULL == records) bh->n_targets = 0;
-  else bh->n_targets = records->n;
-  // reference sequence names and lengths
-  bh->target_name = (char**)calloc(bh->n_targets, sizeof(char*));
-  bh->target_len = (uint32_t*)calloc(bh->n_targets, sizeof(uint32_t));
-  for (i = 0; i != bh->n_targets; ++i) {
-      sam_header_record_t *record = records->records[i];
-      char *ptr = NULL;
-      ptr = sam_header_record_get(record, "SN");
-      if(NULL == ptr) debug("[%s] Missing sequence name.\n", __func__);
-      else bh->target_name[i] = strdup(ptr);
-      ptr = sam_header_record_get(record, "LN");
-      if(NULL == ptr) debug("[%s] Missing sequence length.\n", __func__);
-      bh->target_len[i] = atoi(ptr);
-  }
-
-  // Read Group to Library Hash
-  if (bh->rg2lib == 0) bh->rg2lib = sam_header_table(bh->header, "RG", "ID", "LB");
-
-  // Target Name to index
-  bam_init_header_hash(bh);
+  // Fill in the BAM Header based on the text
+  sam_header_parse(bh);
 
   return bh;
 }
