@@ -467,7 +467,9 @@ sam_header_destroy(sam_header_t *h)
 sam_header_records_t*
 sam_header_get_records(const sam_header_t *h, const char type_tag[2])
 {
-  khash_t(records) *hash = (khash_t(records)*)h->hash;
+  khash_t(records) *hash = NULL;
+  if (NULL == h) return NULL;
+  hash = (khash_t(records)*)h->hash;
   khiter_t k;
   sam_header_tag_t key; key.tag[0] = type_tag[0]; key.tag[1] = type_tag[1];
   k = kh_get(records, hash, key);
@@ -480,6 +482,8 @@ sam_header_get_record(const sam_header_t *h, char type_tag[2], char tag[2], char
   int32_t i;
   sam_header_records_t *records = NULL;
   sam_header_record_t **list = NULL;
+  
+  if (NULL == h) return NULL;
 
   records = sam_header_get_records(h, type_tag);
   if(NULL == records) return NULL;
@@ -501,6 +505,7 @@ sam_header_get_record(const sam_header_t *h, char type_tag[2], char tag[2], char
 int32_t
 sam_header_add_record(sam_header_t *h, sam_header_record_t *record)
 {
+  if (NULL == h) return 0;
   khash_t(records) *hash = (khash_t(records)*)h->hash;
   khiter_t k;
   sam_header_records_t *records = NULL;
@@ -874,6 +879,10 @@ sam_header_to_bam_header(bam_header_t *bh)
 
   // Grab the SAM Header
   sh = bh->header;
+  if(NULL == sh) {
+      debug("[%s] error converting SAM header structure to the BAM header structure.\n", __func__);
+      return bh;
+  }
 
   // Destroy the BAM Header
   bh->header = NULL;
