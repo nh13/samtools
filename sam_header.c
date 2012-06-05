@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <stdarg.h>
 #include "khash.h"
+#include "bam.h"
 
 #include "sam_header.h"
 
@@ -225,13 +226,13 @@ sam_header_record_parse(const char *buf)
   from = buf;
 
   if('@' != (*from)) { 
-    debug("[%s] expected '@', got [%s]\n", __func__, buf);
+      debug("[%s] expected '@', got [%s]\n", __func__, buf);
   }
   to = ++from;
 
   // skip over first tab
   while(0 != (*to) && '\t' != (*to)) {
-    to++;
+      to++;
   }
   if(2 != (to - from)) {
       debug("[%s] expected '@XY', got [%s]\nHint: The header tags must be tab-separated.\n", __func__, buf);
@@ -248,7 +249,7 @@ sam_header_record_parse(const char *buf)
   // skip over the current tab(s)
   from = to;
   while(0 != (*to) && '\t' == (*to)) {
-    to++;
+      to++;
   }
   if(1 != (to - from)) {
       debug("[%s] multiple tabs on line [%s] (%d)\n", __func__, buf, (int)(to-from));
@@ -314,7 +315,7 @@ sam_header_record_parse(const char *buf)
       r = NULL;
       return 0;
   }
-  
+
   return r;
 }
 
@@ -377,9 +378,9 @@ sam_header_records_check(sam_header_records_t *records)
 {
   int32_t i, j;
   char **tags_unq = NULL;
-  
+
   if(SAM_HEADER_TYPE_NONE == records->type) return 1;
-      
+
   // check record
   if(SAM_HEADER_TYPE_TAGS_MAX[records->type] < records->n) { // too many
       debug("[%s] found too many lines for tag [%s] (%d < %d)\n", 
@@ -686,7 +687,7 @@ sam_header_check(sam_header_t *h)
   khash_t(records) *hash = NULL;
   khiter_t k;
   if(NULL == h) return 0;
-  
+
   hash = (khash_t(records)*)h->hash;
   for(k = kh_begin(hash); k != kh_end(hash); ++k) { // go through the record types
       if (kh_exist(hash, k)) { // exist
@@ -774,7 +775,7 @@ sam_header_record_write(const sam_header_record_t *record, char **text, size_t *
           tags++;
       }
       tags = NULL;
-      
+
       // optional tags
       tags = (char**)SAM_HEADER_TAGS_OPT[record->type];
       while(NULL != (*tags)) {
@@ -807,7 +808,7 @@ sam_header_record_write(const sam_header_record_t *record, char **text, size_t *
 
   sam_header_write_add(text, text_len, text_mem, "\n", 1);
 }
-          
+
 static void
 sam_header_records_write(const sam_header_records_t *records, char **text, size_t *text_len, size_t *text_mem)
 {
@@ -838,7 +839,7 @@ sam_header_write(const sam_header_t *h)
       tags++;
   }
   tags = NULL;
-          
+
   // non-standard tags, in any order
   hash = (khash_t(records)*)h->hash;
   for(k = kh_begin(hash); k != kh_end(hash); ++k) {
@@ -860,3 +861,53 @@ sam_header_write(const sam_header_t *h)
   return text;
 }
 
+extern void bam_init_header_hash(bam_header_t *header);
+
+bam_header_t*
+sam_header_to_bam_header(bam_header_t *bh)
+{
+  int32_t i;
+  sam_header_t *sh = NULL;
+  sam_header_records_t *records = NULL;
+
+  // Grab the SAM Header
+  sh = bh->header;
+
+  // Destroy the BAM Header
+  bh->header = NULL;
+  bam_header_destroy(bh); // destroy the header
+  bh = bam_header_init();
+
+  // Copy previous SAM Header
+  bh->header = sh; 
+
+  // SAM Header to text
+  bh->text = sam_header_write(sh);
+  bh->l_text = strlen(bh->text);
+
+  // # of targets
+  records = sam_header_get_records(sh, "SQ");
+  if(NULL == records) bh->n_targets = 0;
+  else bh->n_targets = records->n;
+  // reference sequence names and lengths
+  bh->target_name = (char**)calloc(bh->n_targets, sizeof(char*));
+  bh->target_len = (uint32_t*)calloc(bh->n_targets, sizeof(uint32_t));
+  for (i = 0; i != bh->n_targets; ++i) {
+      sam_header_record_t *record = records->records[i];
+      char *ptr = NULL;
+      ptr = sam_header_record_get(record, "SN");
+      if(NULL == ptr) debug("[%s] Missing sequence name.\n", __func__);
+      else bh->target_name[i] = strdup(ptr);
+      ptr = sam_header_record_get(record, "LN");
+      if(NULL == ptr) debug("[%s] Missing sequence length.\n", __func__);
+      bh->target_len[i] = atoi(ptr);
+  }
+
+  // Read Group to Library Hash
+  if (bh->rg2lib == 0) bh->rg2lib = sam_header_table(bh->header, "RG", "ID", "LB");
+
+  // Target Name to index
+  bam_init_header_hash(bh);
+
+  return bh;
+}

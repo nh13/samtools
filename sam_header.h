@@ -271,6 +271,13 @@ extern "C" {
     char*
       sam_header_write(const sam_header_t *h);
 
+    /*!
+      @abstract Populations the BAM Header fields from the internal SAM Header
+      @param  h the BAM header
+    */
+    struct __bam_header_t*
+      sam_header_to_bam_header(struct __bam_header_t *h);
+
 #ifdef __cplusplus
 }
 #endif

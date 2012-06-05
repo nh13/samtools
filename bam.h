@@ -85,7 +85,7 @@ typedef gzFile bamFile;
   @discussion Field hash points to null by default. It is a private
   member.
  */
-typedef struct {
+typedef struct __bam_header_t {
 	int32_t n_targets;
 	char **target_name;
 	uint32_t *target_len;
