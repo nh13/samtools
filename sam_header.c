@@ -410,7 +410,7 @@ sam_header_records_check(sam_header_records_t *records)
               char *v1 = sam_header_record_get(r1, (*tags_unq));
               char *v2 = sam_header_record_get(r2, (*tags_unq));
               if(NULL != v1 && NULL != v2 && 0 == strcmp(v1, v2)) {
-                  debug("[%s] value for %s.%s was not unique\n", records->tag, (*tags_unq));
+                  debug("[%s] value for %s.%s was not unique\n", __func__, records->tag, (*tags_unq));
                   return 0;
               }
 
