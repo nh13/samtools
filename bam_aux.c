@@ -20,6 +20,24 @@ void bam_aux_append(bam1_t *b, const char tag[2], char type, int len, uint8_t *d
 	memcpy(b->data + ori_len + 3, data, len);
 }
 
+void bam_aux_appendB(bam1_t *b, const char tag[2], char type, char subtype, int len, uint8_t *data)
+{
+	int ori_len = b->data_len;
+        int data_len = len * bam_aux_type2size(type); // infer the data length
+	b->data_len += 8 + data_len;
+	b->l_aux += 8 + data_len;
+	if (b->m_data < b->data_len) {
+		b->m_data = b->data_len;
+		kroundup32(b->m_data);
+		b->data = (uint8_t*)realloc(b->data, b->m_data);
+	}
+	b->data[ori_len] = tag[0]; b->data[ori_len + 1] = tag[1];
+	b->data[ori_len + 2] = type;
+	b->data[ori_len + 3] = subtype;
+        (*(int32_t*)(b->data + ori_len + 4)) = len; // size
+	memcpy(b->data + ori_len + 8, data, data_len);
+}
+
 uint8_t *bam_aux_get_core(bam1_t *b, const char tag[2])
 {
 	return bam_aux_get(b, tag);

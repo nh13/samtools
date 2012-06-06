@@ -693,6 +693,7 @@ extern "C" {
 
 	int bam_aux_del(bam1_t *b, uint8_t *s);
 	void bam_aux_append(bam1_t *b, const char tag[2], char type, int len, uint8_t *data);
+        void bam_aux_appendB(bam1_t *b, const char tag[2], char type, char subtype, int len, uint8_t *data);
 	uint8_t *bam_aux_get_core(bam1_t *b, const char tag[2]); // an alias of bam_aux_get()
 
 
