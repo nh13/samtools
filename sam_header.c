@@ -840,8 +840,7 @@ sam_header_write(const sam_header_t *h)
   while(NULL != (*tags)) {
       sam_header_records_t *records = NULL;
       records = sam_header_get_records(h, (*tags));
-      if(NULL == records) continue;
-      sam_header_records_write(records, &text, &len, &mem);
+      if(NULL != records) sam_header_records_write(records, &text, &len, &mem);
       tags++;
   }
   tags = NULL;
