@@ -457,6 +457,7 @@ sam_header_destroy(sam_header_t *h)
   khiter_t k;
   if(NULL == h) return;
   hash = (khash_t(records)*)h->hash;
+  if(NULL == hash) return;
   for(k = kh_begin(hash); k != kh_end(hash); ++k) {
       if (kh_exist(hash, k)) {
           sam_header_records_destroy(kh_value(hash, k));
@@ -558,7 +559,7 @@ sam_header_clone(const sam_header_t *h)
       }
   }
 
-  return NULL;
+  return out;
 }
 
 // NB: shallow copy
