@@ -157,7 +157,7 @@ sam_header_record_add(sam_header_record_t *r, const char *key, const char *value
   sam_header_tag_t key_str; key_str.tag[0] = key[0]; key_str.tag[1] = key[1];
   k = kh_get(str, hash, key_str);
   if(k != kh_end(hash)) {
-      debug("[%s] The key %s is not unique.\n", __func__, key);
+      debug("[%s] The key %c%c is not unique.\n", __func__, key[0], key[1]);
       return 0;
   }
   k = kh_put(str, hash, key_str, &ret);
@@ -204,7 +204,7 @@ sam_header_record_check(const sam_header_record_t *record)
   tags_req = (char**)SAM_HEADER_TAGS_REQ[record->type];
   while(NULL != (*tags_req)) { // go through the required tags
       if(NULL == sam_header_record_get(record, (*tags_req))) {
-          debug("[%s] required tag [%s] missing from record type [%s]\n", __func__, (*tags_req), record->tag);
+          debug("[%s] required tag [%s] missing from record type [%c%c]\n", __func__, (*tags_req), record->tag[0], record->tag[1]);
           return 0;
       }
       tags_req++;
@@ -383,8 +383,9 @@ sam_header_records_check(sam_header_records_t *records)
 
   // check record
   if(SAM_HEADER_TYPE_TAGS_MAX[records->type] < records->n) { // too many
-      debug("[%s] found too many lines for tag [%s] (%d < %d)\n", 
-            __func__, records->tag, SAM_HEADER_TYPE_TAGS_MAX[records->type], records->n); 
+      debug("[%s] found too many lines for tag [%c%c] (%d < %d)\n", 
+            __func__, records->tag[0], records->tag[1],
+            SAM_HEADER_TYPE_TAGS_MAX[records->type], records->n); 
       return 0;
   }
 
@@ -401,7 +402,9 @@ sam_header_records_check(sam_header_records_t *records)
       for(j=0;j<records->n;j++) {
           sam_header_record_t *r2 = records->records[j];
           if(r1->type != r2->type || 0 != tagcmp(r1->tag, r2->tag)) {
-              debug("[%s] found inconsistency in the sam header [%d,%d,%s,%s]\n", __func__, i, j, r1->tag, r2->tag);
+              debug("[%s] found inconsistency in the sam header [%d,%d,%c%c,%c%c]\n", __func__, i, j, 
+                    r1->tag[0], r1->tag[1],
+                    r2->tag[0], r2->tag[2]);
               return 0;
           }
           if(i == j) continue;
@@ -410,7 +413,7 @@ sam_header_records_check(sam_header_records_t *records)
               char *v1 = sam_header_record_get(r1, (*tags_unq));
               char *v2 = sam_header_record_get(r2, (*tags_unq));
               if(NULL != v1 && NULL != v2 && 0 == strcmp(v1, v2)) {
-                  debug("[%s] value for %s.%s was not unique\n", __func__, records->tag, (*tags_unq));
+                  debug("[%s] value for %c%c.%s was not unique\n", __func__, records->tag[0], records->tag[1], (*tags_unq));
                   return 0;
               }
 
@@ -517,8 +520,8 @@ sam_header_add_record(sam_header_t *h, sam_header_record_t *record)
       // check if we should multiple are allowed etc...
       if(SAM_HEADER_TYPE_NONE != records->type) {
           if(SAM_HEADER_TYPE_TAGS_MAX[records->type] <= records->n) {
-              debug("[%s] too many lines for tag [%s] (%d <= %d)\n", 
-                    __func__, records->tag, SAM_HEADER_TYPE_TAGS_MAX[records->type], records->n); 
+              debug("[%s] too many lines for tag [%c%c] (%d <= %d)\n", 
+                    __func__, records->tag[0], records->tag[1], SAM_HEADER_TYPE_TAGS_MAX[records->type], records->n); 
               return 0;
           }
       }
