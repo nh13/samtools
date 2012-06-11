@@ -22,9 +22,12 @@ void bam_aux_append(bam1_t *b, const char tag[2], char type, int len, uint8_t *d
 
 void bam_aux_appendB(bam1_t *b, const char tag[2], char type, char subtype, int len, uint8_t *data)
 {
-	int ori_len = b->data_len;
-        int data_len = len * bam_aux_type2size(subtype); // infer the data length from the sub-type
-        // TODO: check that type is 'B'
+	int ori_len;
+        int data_len;
+        // check that type is 'B'
+        if('B' != type) return;
+	ori_len = b->data_len;
+        data_len = len * bam_aux_type2size(subtype); // infer the data length from the sub-type
 	b->data_len += 8 + data_len;
 	b->l_aux += 8 + data_len;
 	if (b->m_data < b->data_len) {
