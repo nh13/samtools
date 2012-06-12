@@ -22,6 +22,7 @@ bam_header_t *bam_header_dup(const bam_header_t *h0)
 		h->target_len[i] = h0->target_len[i];
 		h->target_name[i] = strdup(h0->target_name[i]);
 	}
+	if (h->header == 0) h->header = sam_header_parse2(h->text);
 	return h;
 }
 static void append_header_text(bam_header_t *header, char* text, int len)

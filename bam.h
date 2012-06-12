@@ -108,7 +108,7 @@ typedef gzFile bamFile;
   @discussion Field hash points to null by default. It is a private
   member.
  */
-typedef struct {
+typedef struct __bam_header_t {
 	int32_t n_targets;
 	char **target_name;
 	uint32_t *target_len;
@@ -218,7 +218,7 @@ typedef struct {
   @field  l_aux      length of auxiliary data
   @field  data_len   current length of bam1_t::data
   @field  m_data     maximum length of bam1_t::data
-  @field  data       all variable-length data, concatenated; structure: cigar-qname-seq-qual-aux
+  @field  data       all variable-length data, concatenated; structure: qname-cigar-seq-qual-aux
 
   @discussion Notes:
  
@@ -716,6 +716,7 @@ extern "C" {
 
 	int bam_aux_del(bam1_t *b, uint8_t *s);
 	void bam_aux_append(bam1_t *b, const char tag[2], char type, int len, uint8_t *data);
+        void bam_aux_appendB(bam1_t *b, const char tag[2], char type, char subtype, int len, uint8_t *data);
 	uint8_t *bam_aux_get_core(bam1_t *b, const char tag[2]); // an alias of bam_aux_get()
 
 

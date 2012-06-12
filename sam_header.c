@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <stdarg.h>
 #include "khash.h"
+#include "bam.h"
 
 #include "sam_header.h"
 
@@ -156,7 +157,7 @@ sam_header_record_add(sam_header_record_t *r, const char *key, const char *value
   sam_header_tag_t key_str; key_str.tag[0] = key[0]; key_str.tag[1] = key[1];
   k = kh_get(str, hash, key_str);
   if(k != kh_end(hash)) {
-      debug("[%s] The key %s is not unique.\n", __func__, key);
+      debug("[%s] The key %c%c is not unique.\n", __func__, key[0], key[1]);
       return 0;
   }
   k = kh_put(str, hash, key_str, &ret);
@@ -203,7 +204,7 @@ sam_header_record_check(const sam_header_record_t *record)
   tags_req = (char**)SAM_HEADER_TAGS_REQ[record->type];
   while(NULL != (*tags_req)) { // go through the required tags
       if(NULL == sam_header_record_get(record, (*tags_req))) {
-          debug("[%s] required tag [%s] missing from record type [%s]\n", __func__, (*tags_req), record->tag);
+          debug("[%s] required tag [%s] missing from record type [%c%c]\n", __func__, (*tags_req), record->tag[0], record->tag[1]);
           return 0;
       }
       tags_req++;
@@ -225,13 +226,13 @@ sam_header_record_parse(const char *buf)
   from = buf;
 
   if('@' != (*from)) { 
-    debug("[%s] expected '@', got [%s]\n", __func__, buf);
+      debug("[%s] expected '@', got [%s]\n", __func__, buf);
   }
   to = ++from;
 
   // skip over first tab
   while(0 != (*to) && '\t' != (*to)) {
-    to++;
+      to++;
   }
   if(2 != (to - from)) {
       debug("[%s] expected '@XY', got [%s]\nHint: The header tags must be tab-separated.\n", __func__, buf);
@@ -248,7 +249,7 @@ sam_header_record_parse(const char *buf)
   // skip over the current tab(s)
   from = to;
   while(0 != (*to) && '\t' == (*to)) {
-    to++;
+      to++;
   }
   if(1 != (to - from)) {
       debug("[%s] multiple tabs on line [%s] (%d)\n", __func__, buf, (int)(to-from));
@@ -314,7 +315,6 @@ sam_header_record_parse(const char *buf)
       r = NULL;
       return 0;
   }
-  
   return r;
 }
 
@@ -377,13 +377,14 @@ sam_header_records_check(sam_header_records_t *records)
 {
   int32_t i, j;
   char **tags_unq = NULL;
-  
+
   if(SAM_HEADER_TYPE_NONE == records->type) return 1;
-      
+
   // check record
   if(SAM_HEADER_TYPE_TAGS_MAX[records->type] < records->n) { // too many
-      debug("[%s] found too many lines for tag [%s] (%d < %d)\n", 
-            __func__, records->tag, SAM_HEADER_TYPE_TAGS_MAX[records->type], records->n); 
+      debug("[%s] found too many lines for tag [%c%c] (%d < %d)\n", 
+            __func__, records->tag[0], records->tag[1],
+            SAM_HEADER_TYPE_TAGS_MAX[records->type], records->n); 
       return 0;
   }
 
@@ -400,7 +401,9 @@ sam_header_records_check(sam_header_records_t *records)
       for(j=0;j<records->n;j++) {
           sam_header_record_t *r2 = records->records[j];
           if(r1->type != r2->type || 0 != tagcmp(r1->tag, r2->tag)) {
-              debug("[%s] found inconsistency in the sam header [%d,%d,%s,%s]\n", __func__, i, j, r1->tag, r2->tag);
+              debug("[%s] found inconsistency in the sam header [%d,%d,%c%c,%c%c]\n", __func__, i, j, 
+                    r1->tag[0], r1->tag[1],
+                    r2->tag[0], r2->tag[2]);
               return 0;
           }
           if(i == j) continue;
@@ -409,7 +412,7 @@ sam_header_records_check(sam_header_records_t *records)
               char *v1 = sam_header_record_get(r1, (*tags_unq));
               char *v2 = sam_header_record_get(r2, (*tags_unq));
               if(NULL != v1 && NULL != v2 && 0 == strcmp(v1, v2)) {
-                  debug("[%s] value for %s.%s was not unique\n", records->tag, (*tags_unq));
+                  debug("[%s] value for %c%c.%s was not unique\n", __func__, records->tag[0], records->tag[1], (*tags_unq));
                   return 0;
               }
 
@@ -453,6 +456,7 @@ sam_header_destroy(sam_header_t *h)
   khiter_t k;
   if(NULL == h) return;
   hash = (khash_t(records)*)h->hash;
+  if(NULL == hash) return;
   for(k = kh_begin(hash); k != kh_end(hash); ++k) {
       if (kh_exist(hash, k)) {
           sam_header_records_destroy(kh_value(hash, k));
@@ -466,7 +470,9 @@ sam_header_destroy(sam_header_t *h)
 sam_header_records_t*
 sam_header_get_records(const sam_header_t *h, const char type_tag[2])
 {
-  khash_t(records) *hash = (khash_t(records)*)h->hash;
+  khash_t(records) *hash = NULL;
+  if (NULL == h) return NULL;
+  hash = (khash_t(records)*)h->hash;
   khiter_t k;
   sam_header_tag_t key; key.tag[0] = type_tag[0]; key.tag[1] = type_tag[1];
   k = kh_get(records, hash, key);
@@ -479,6 +485,8 @@ sam_header_get_record(const sam_header_t *h, char type_tag[2], char tag[2], char
   int32_t i;
   sam_header_records_t *records = NULL;
   sam_header_record_t **list = NULL;
+  
+  if (NULL == h) return NULL;
 
   records = sam_header_get_records(h, type_tag);
   if(NULL == records) return NULL;
@@ -500,6 +508,7 @@ sam_header_get_record(const sam_header_t *h, char type_tag[2], char tag[2], char
 int32_t
 sam_header_add_record(sam_header_t *h, sam_header_record_t *record)
 {
+  if (NULL == h) return 0;
   khash_t(records) *hash = (khash_t(records)*)h->hash;
   khiter_t k;
   sam_header_records_t *records = NULL;
@@ -511,8 +520,8 @@ sam_header_add_record(sam_header_t *h, sam_header_record_t *record)
       // check if we should multiple are allowed etc...
       if(SAM_HEADER_TYPE_NONE != records->type) {
           if(SAM_HEADER_TYPE_TAGS_MAX[records->type] <= records->n) {
-              debug("[%s] too many lines for tag [%s] (%d <= %d)\n", 
-                    __func__, records->tag, SAM_HEADER_TYPE_TAGS_MAX[records->type], records->n); 
+              debug("[%s] too many lines for tag [%c%c] (%d <= %d)\n", 
+                    __func__, records->tag[0], records->tag[1], SAM_HEADER_TYPE_TAGS_MAX[records->type], records->n); 
               return 0;
           }
       }
@@ -549,7 +558,7 @@ sam_header_clone(const sam_header_t *h)
       }
   }
 
-  return NULL;
+  return out;
 }
 
 // NB: shallow copy
@@ -686,7 +695,7 @@ sam_header_check(sam_header_t *h)
   khash_t(records) *hash = NULL;
   khiter_t k;
   if(NULL == h) return 0;
-  
+
   hash = (khash_t(records)*)h->hash;
   for(k = kh_begin(hash); k != kh_end(hash); ++k) { // go through the record types
       if (kh_exist(hash, k)) { // exist
@@ -774,7 +783,7 @@ sam_header_record_write(const sam_header_record_t *record, char **text, size_t *
           tags++;
       }
       tags = NULL;
-      
+
       // optional tags
       tags = (char**)SAM_HEADER_TAGS_OPT[record->type];
       while(NULL != (*tags)) {
@@ -806,8 +815,9 @@ sam_header_record_write(const sam_header_record_t *record, char **text, size_t *
   }
 
   sam_header_write_add(text, text_len, text_mem, "\n", 1);
+  (*text)[(*text_len)]='\0';
 }
-          
+
 static void
 sam_header_records_write(const sam_header_records_t *records, char **text, size_t *text_len, size_t *text_mem)
 {
@@ -833,12 +843,11 @@ sam_header_write(const sam_header_t *h)
   while(NULL != (*tags)) {
       sam_header_records_t *records = NULL;
       records = sam_header_get_records(h, (*tags));
-      if(NULL == records) continue;
-      sam_header_records_write(records, &text, &len, &mem);
+      if(NULL != records) sam_header_records_write(records, &text, &len, &mem);
       tags++;
   }
   tags = NULL;
-          
+
   // non-standard tags, in any order
   hash = (khash_t(records)*)h->hash;
   for(k = kh_begin(hash); k != kh_end(hash); ++k) {
@@ -857,6 +866,40 @@ sam_header_write(const sam_header_t *h)
       mem = len + 1;
   }
 
+  // EOL
+  text[len] = '\0';
+
   return text;
 }
 
+extern void bam_init_header_hash(bam_header_t *header);
+
+bam_header_t*
+sam_header_to_bam_header(bam_header_t *bh)
+{
+  sam_header_t *sh = NULL;
+
+  // Grab the SAM Header
+  sh = bh->header;
+  if(NULL == sh) {
+      debug("[%s] error converting SAM header structure to the BAM header structure.\n", __func__);
+      return bh;
+  }
+
+  // Destroy the BAM Header
+  bh->header = NULL;
+  bam_header_destroy(bh); // destroy the header
+  bh = bam_header_init();
+
+  // Copy previous SAM Header
+  bh->header = sh; 
+
+  // SAM Header to text
+  bh->text = sam_header_write(sh);
+  bh->l_text = strlen(bh->text);
+
+  // Fill in the BAM Header based on the text
+  sam_header_parse(bh);
+
+  return bh;
+}

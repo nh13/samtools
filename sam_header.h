@@ -103,7 +103,11 @@ extern "C" {
     /*! 
       @abstract Checks the SAM record for consistency for required tags in standard record types.
       @param  record  the record to check
+<<<<<<< HEAD
       @return  1 if the record is consisteny, 0 otherwise
+=======
+      @return  1 if the record is consistent, 0 otherwise
+>>>>>>> smt_tmap
       */
     int32_t
       sam_header_record_check(const sam_header_record_t *record);
@@ -270,6 +274,21 @@ extern "C" {
      */
     char*
       sam_header_write(const sam_header_t *h);
+
+    /*!
+      @abstract Checks the SAM Header for consistency for required tags in standard record types.
+      @param  h  the SAM Header
+      @return    1 if the SAM Header is consistent, 0 otherwise
+     */
+    int32_t
+      sam_header_check(sam_header_t *h);
+
+    /*!
+      @abstract Populations the BAM Header fields from the internal SAM Header
+      @param  h the BAM header
+    */
+    struct __bam_header_t*
+      sam_header_to_bam_header(struct __bam_header_t *h);
 
 #ifdef __cplusplus
 }
