@@ -217,8 +217,8 @@ tview_t *tv_init(const char *fn, const char *fn_fa, char *samples)
     if ( samples ) 
     {
         tv->sample = samples;
-        tv->header->dict = sam_header_parse2(tv->header->text);
-        tv->rg2sm = sam_header2tbl(tv->header->dict, "RG", "ID", "SM");
+        tv->header->header = sam_header_parse2(tv->header->text);
+        tv->rg2sm = sam_header_table(tv->header->header, "RG", "ID", "SM");
     }
 
 	initscr();

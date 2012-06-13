@@ -103,11 +103,7 @@ extern "C" {
     /*! 
       @abstract Checks the SAM record for consistency for required tags in standard record types.
       @param  record  the record to check
-<<<<<<< HEAD
-      @return  1 if the record is consisteny, 0 otherwise
-=======
       @return  1 if the record is consistent, 0 otherwise
->>>>>>> smt_tmap
       */
     int32_t
       sam_header_record_check(const sam_header_record_t *record);

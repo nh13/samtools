@@ -48,7 +48,7 @@ KSORT_INIT(bamshuf, elem_t, elem_lt)
 
 static void bamshuf(const char *fn, int n_files, const char *pre, int clevel, int is_stdout)
 {
-	BGZF *fp, *fpw, **fpt;
+	bamFile fp, fpw, *fpt;
 	char **fnt, modew[8];
 	bam1_t *b;
 	int i, l;
@@ -56,17 +56,17 @@ static void bamshuf(const char *fn, int n_files, const char *pre, int clevel, in
 	int64_t *cnt;
 
 	// split
-	fp = strcmp(fn, "-")? bgzf_open(fn, "r") : bgzf_dopen(fileno(stdin), "r");
+	fp = strcmp(fn, "-")? bam_open(fn, "r") : bam_dopen(fileno(stdin), "r");
 	assert(fp);
 	h = bam_hdr_read(fp);
 	fnt = (char**)calloc(n_files, sizeof(void*));
-	fpt = (BGZF**)calloc(n_files, sizeof(void*));
+	fpt = (bamFile*)calloc(n_files, sizeof(void*));
 	cnt = (int64_t*)calloc(n_files, 8);
 	l = strlen(pre);
 	for (i = 0; i < n_files; ++i) {
 		fnt[i] = (char*)calloc(l + 10, 1);
 		sprintf(fnt[i], "%s.%.4d.bam", pre, i);
-		fpt[i] = bgzf_open(fnt[i], "w1");
+		fpt[i] = bam_open(fnt[i], "w1");
 		bam_hdr_write(fpt[i], h);
 	}
 	b = bam_init1();
@@ -77,23 +77,23 @@ static void bamshuf(const char *fn, int n_files, const char *pre, int clevel, in
 		++cnt[x];
 	}
 	bam_destroy1(b);
-	for (i = 0; i < n_files; ++i) bgzf_close(fpt[i]);
+	for (i = 0; i < n_files; ++i) bam_close(fpt[i]);
 	free(fpt);
-	bgzf_close(fp);
+	bam_close(fp);
 	// merge
 	sprintf(modew, "w%d", (clevel >= 0 && clevel <= 9)? clevel : DEF_CLEVEL);
 	if (!is_stdout) { // output to a file
 		char *fnw = (char*)calloc(l + 5, 1);
 		sprintf(fnw, "%s.bam", pre);
-		fpw = bgzf_open(fnw, modew);
+		fpw = bam_open(fnw, modew);
 		free(fnw);
-	} else fpw = bgzf_dopen(fileno(stdout), modew); // output to stdout
+	} else fpw = bam_dopen(fileno(stdout), modew); // output to stdout
 	bam_hdr_write(fpw, h);
 	bam_hdr_destroy(h);
 	for (i = 0; i < n_files; ++i) {
 		int64_t j, c = cnt[i];
 		elem_t *a;
-		fp = bgzf_open(fnt[i], "r");
+		fp = bam_open(fnt[i], "r");
 		bam_hdr_destroy(bam_hdr_read(fp));
 		a = (elem_t*)calloc(c, sizeof(elem_t));
 		for (j = 0; j < c; ++j) {
@@ -101,7 +101,7 @@ static void bamshuf(const char *fn, int n_files, const char *pre, int clevel, in
 			assert(bam_read1(fp, a[j].b) >= 0);
 			a[j].key = hash_X31_Wang(bam_get_qname(a[j].b));
 		}
-		bgzf_close(fp);
+		bam_close(fp);
 		unlink(fnt[i]);
 		free(fnt[i]);
 		ks_introsort(bamshuf, c, a);
@@ -111,7 +111,7 @@ static void bamshuf(const char *fn, int n_files, const char *pre, int clevel, in
 		}
 		free(a);
 	}
-	bgzf_close(fpw);
+	bam_close(fpw);
 	free(fnt); free(cnt);
 }
 
