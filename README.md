@@ -7,6 +7,8 @@ useful, consider writing to the SAMtools mailing lists to encourage their inclus
 support repository: samtools-help@lists.sourceforge.net.
 
 ## Major fixes:
+	- SAM Header API
+		- Clear and easy to use to query and modify the SAM Header
 	- SAM/BAM reader is now multi-threaded, significantly speeding up reading and writing of BAM files.
 	    - To remove support for parallel reading and writing of files, modify the Makefile: 
 		remove "-D_PBGZF_USE"
