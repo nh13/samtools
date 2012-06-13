@@ -100,6 +100,15 @@ extern "C" {
     char*
       sam_header_record_get(const sam_header_record_t *r, const char *tag);
 
+    /*!
+      @abstract Removes the tag from the record.
+      @param  r      the record in which to delete
+      @param  tag    the tag (key)
+      @return  1 if the tag was found and deleted, 0 otherwise
+      */
+    int32_t
+      sam_header_record_remove(const sam_header_record_t *r, const char *tag);
+
     /*! 
       @abstract Checks the SAM record for consistency for required tags in standard record types.
       @param  record  the record to check

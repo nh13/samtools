@@ -195,6 +195,26 @@ sam_header_record_get(const sam_header_record_t *r, const char *tag)
 }
 
 int32_t
+sam_header_record_remove(const sam_header_record_t *r, const char *tag)
+{
+  khash_t(str) *hash = (khash_t(str)*)r->hash;
+  khiter_t k;
+  sam_header_tag_t key; key.tag[0] = tag[0]; key.tag[1] = tag[1];
+  k = kh_get(str, hash, key);
+  if(kh_end(hash) == k) {
+      return 0;
+  }
+  else {
+      // destroy
+      free(kh_value(hash, k));
+      kh_value(hash, k) = NULL;
+      // delete the key from the hash
+      kh_del(str, hash, k);
+      return 1;
+  }
+}
+
+int32_t
 sam_header_record_check(const sam_header_record_t *record)
 {
   char **tags_req = NULL;
