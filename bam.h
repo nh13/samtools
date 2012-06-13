@@ -40,7 +40,7 @@
   @copyright Genome Research Ltd.
  */
 
-#define BAM_VERSION "0.1.18-master-r567"
+#define BAM_VERSION "0.1.18-r572"
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -193,7 +193,6 @@ typedef struct __bam_header_t {
   @abstract Structure for core alignment information.
   @field  tid     chromosome ID, defined by bam_header_t
   @field  pos     0-based leftmost coordinate
-  @field  strand  strand; 0 for forward and 1 otherwise
   @field  bin     bin calculated by bam_reg2bin()
   @field  qual    mapping quality
   @field  l_qname length of the query name
@@ -225,6 +224,8 @@ typedef struct {
    1. qname is zero tailing and core.l_qname includes the tailing '\0'.
    2. l_qseq is calculated from the total length of an alignment block
       on reading or from CIGAR.
+   3. cigar data is encoded 4 bytes per CIGAR operation.
+   4. seq is nybble-encoded according to bam_nt16_table.
  */
 typedef struct {
 	bam1_core_t core;
@@ -809,5 +810,17 @@ static inline int bam_aux_type2size(int x)
 	else return 0;
 }
 
+/*********************************
+ *** Compatibility with htslib ***
+ *********************************/
+
+typedef bam_header_t bam_hdr_t;
+
+#define bam_get_qname(b) bam1_qname(b)
+#define bam_get_cigar(b) bam1_cigar(b)
+
+#define bam_hdr_read(fp) bam_header_read(fp)
+#define bam_hdr_write(fp, h) bam_header_write(fp, h)
+#define bam_hdr_destroy(fp) bam_header_destroy(fp)
 
 #endif
