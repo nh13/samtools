@@ -60,7 +60,7 @@ int main_bedcov(int argc, char *argv[])
 			fprintf(stderr, "ERROR: fail to open index BAM file '%s'\n", argv[i+optind+1]);
 			return 2;
 		}
-		bgzf_set_cache_size(aux[i]->fp, 20);
+		bam_set_cache_size(aux[i]->fp, 20);
 		if (i == 0) h = bam_header_read(aux[0]->fp);
 	}
 	bam_init_header_hash(h);
