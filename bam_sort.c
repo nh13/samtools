@@ -47,10 +47,15 @@ typedef struct {
 static inline int heap_lt(const heap1_t a, const heap1_t b)
 {
 	if (g_is_by_qname) {
-		int t;
-		if (a.b == 0 || b.b == 0) return a.b == 0? 1 : 0;
-		t = strnum_cmp(bam1_qname(a.b), bam1_qname(b.b));
-		return (t > 0 || (t == 0 && (a.b->core.flag&0xc0) > (b.b->core.flag&0xc0)));
+                int t;
+                if (a.b == 0 || b.b == 0) return a.b == 0? 1 : 0;
+                t = strnum_cmp(bam1_qname(a.b), bam1_qname(b.b));
+                if (t != 0) return (0 > t);
+                if(1 == (a.b->core.flag&BAM_FPAIRED) && 1 == (b.b->core.flag&BAM_FPAIRED)) {
+                    if(a.b->core.flag&BAM_FREAD1) return (0 < 1);
+                    else return (1 < 0);
+                }
+                else return __pos_cmp(a, b);
 	} else return __pos_cmp(a, b);
 }
 
@@ -377,10 +382,15 @@ static int change_SO(bam_header_t *h, const char *so)
 
 static inline int bam1_lt(const bam1_p a, const bam1_p b)
 {
-	if (g_is_by_qname) {
-		int t = strnum_cmp(bam1_qname(a), bam1_qname(b));
-		return (t < 0 || (t == 0 && (a->core.flag&0xc0) < (b->core.flag&0xc0)));
-	} else return (((uint64_t)a->core.tid<<32|(a->core.pos+1)<<1|bam1_strand(a)) < ((uint64_t)b->core.tid<<32|(b->core.pos+1)<<1|bam1_strand(b)));
+        if (g_is_by_qname) {
+                int t = strnum_cmp(bam1_qname(a), bam1_qname(b));
+                if (t != 0) return (t < 0);
+                if(1 == (a->core.flag&BAM_FPAIRED) && 1 == (b->core.flag&BAM_FPAIRED)) {
+                    if(a->core.flag&BAM_FREAD1) return (0 < 1);
+                    else return (1 < 0);
+                }
+                else return (((uint64_t)a->core.tid<<32|(a->core.pos+1)) < ((uint64_t)b->core.tid<<32|(b->core.pos+1)));
+        } else return (((uint64_t)a->core.tid<<32|(a->core.pos+1)) < ((uint64_t)b->core.tid<<32|(b->core.pos+1)));
 }
 KSORT_INIT(sort, bam1_p, bam1_lt)
 
