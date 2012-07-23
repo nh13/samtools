@@ -572,6 +572,7 @@ int bgzf_check_EOF(BGZF *fp)
 	static uint8_t magic[28] = "\037\213\010\4\0\0\0\0\0\377\6\0\102\103\2\0\033\0\3\0\0\0\0\0\0\0\0\0";
 	uint8_t buf[28];
 	off_t offset;
+        if(0 == fp->compress_level) return 1;
 	offset = _bgzf_tell(fp->fp);
 	if (_bgzf_seek(fp->fp, -28, SEEK_END) < 0) return 0;
 	_bgzf_read(fp->fp, buf, 28);
