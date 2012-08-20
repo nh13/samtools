@@ -67,7 +67,11 @@ Note: The Windows version of SAMtools is mainly designed for read-only\n\
 	return 1;
 }
 
+#ifdef SAMTOOLS_MAIN
+int samtools_main(int argc, char *argv[])
+#else
 int main(int argc, char *argv[])
+#endif
 {
 #ifdef _WIN32
 	setmode(fileno(stdout), O_BINARY);
