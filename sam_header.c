@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <stdarg.h>
 #include "khash.h"
+#include "ksort.h"
 #include "bam.h"
 
 #include "sam_header.h"
@@ -68,6 +69,43 @@ debug(const char *format, ...)
   vfprintf(stderr, format, ap);
   va_end(ap);
 }
+
+int
+sam_header_record_lt(sam_header_record_t *r1, sam_header_record_t *r2)
+{
+  char **tags_unq = NULL;
+  if(r1->type != r2->type || 0 != tagcmp(r1->tag, r2->tag)) {
+      debug("[%s] found inconsistency in the sam header [%c%c,%c%c]\n", __func__, 
+            r1->tag[0], r1->tag[1],
+            r2->tag[0], r2->tag[2]);
+      exit(1);
+  }
+  tags_unq = (char**)SAM_HEADER_TAGS_UNQ[r1->type];
+  while(NULL != (*tags_unq)) {
+      char *v1 = sam_header_record_get(r1, (*tags_unq));
+      char *v2 = sam_header_record_get(r2, (*tags_unq));
+      if(NULL != v1 && NULL != v2) {
+          int c = strcmp(v1, v2);
+          if(c < 0) return 1;
+          else if(0 < c) return 0;
+      }
+      else if(NULL != v1 && NULL == v2) {
+          return 1;
+      }
+      else if(NULL == v1 && NULL != v2) {
+          return 0;
+      }
+
+      tags_unq++;
+
+  }
+  return 0;
+}
+
+#define __sam_header_record_lt(r1, r2) (1 == sam_header_record_lt(&r1, &r2))
+
+KSORT_INIT(sam_header_record, sam_header_record_t, __sam_header_record_lt)
+
 
 // Mimics the behaviour of getline, except it returns pointer to the next chunk of the text
 //  or NULL if everything has been read. The lineptr should be freed by the caller. The
@@ -396,8 +434,9 @@ sam_header_records_add(sam_header_records_t *records, sam_header_record_t *recor
 int32_t
 sam_header_records_check(sam_header_records_t *records)
 {
-  int32_t i, j;
+  int32_t i;
   char **tags_unq = NULL;
+  sam_header_record_t *list = NULL;
 
   if(SAM_HEADER_TYPE_NONE == records->type) return 1;
 
@@ -409,6 +448,9 @@ sam_header_records_check(sam_header_records_t *records)
       return 0;
   }
 
+  // store a list of records
+  list = calloc(records->n, sizeof(sam_header_record_t));
+
   // check unique tags
   for(i=0;i<records->n;i++) {
       sam_header_record_t *r1 = records->records[i];
@@ -418,29 +460,38 @@ sam_header_records_check(sam_header_records_t *records)
           return 0;
       }
 
-      // compare against others
-      for(j=0;j<records->n;j++) {
-          sam_header_record_t *r2 = records->records[j];
-          if(r1->type != r2->type || 0 != tagcmp(r1->tag, r2->tag)) {
-              debug("[%s] found inconsistency in the sam header [%d,%d,%c%c,%c%c]\n", __func__, i, j, 
-                    r1->tag[0], r1->tag[1],
-                    r2->tag[0], r2->tag[2]);
+      // save for the list
+      list[i] = (*r1);
+  }
+
+  // sort the list...
+  ks_introsort(sam_header_record, records->n, list);
+
+  // check for inconsistencies
+  for(i=0;i<records->n-1;i++) {
+      sam_header_record_t *r1 = records->records[i];
+      sam_header_record_t *r2 = records->records[i+1];
+      if(r1->type != r2->type || 0 != tagcmp(r1->tag, r2->tag)) {
+          debug("[%s] found inconsistency in the sam header [%d,%d,%c%c,%c%c]\n", __func__, i, i+1, 
+                r1->tag[0], r1->tag[1],
+                r2->tag[0], r2->tag[2]);
+          return 0;
+      }
+      tags_unq = (char**)SAM_HEADER_TAGS_UNQ[records->type];
+      while(NULL != (*tags_unq)) {
+          char *v1 = sam_header_record_get(r1, (*tags_unq));
+          char *v2 = sam_header_record_get(r2, (*tags_unq));
+          if(NULL != v1 && NULL != v2 && 0 == strcmp(v1, v2)) {
+              debug("[%s] value for %c%c.%s was not unique\n", __func__, records->tag[0], records->tag[1], (*tags_unq));
               return 0;
           }
-          if(i == j) continue;
-          tags_unq = (char**)SAM_HEADER_TAGS_UNQ[records->type];
-          while(NULL != (*tags_unq)) {
-              char *v1 = sam_header_record_get(r1, (*tags_unq));
-              char *v2 = sam_header_record_get(r2, (*tags_unq));
-              if(NULL != v1 && NULL != v2 && 0 == strcmp(v1, v2)) {
-                  debug("[%s] value for %c%c.%s was not unique\n", __func__, records->tag[0], records->tag[1], (*tags_unq));
-                  return 0;
-              }
 
-              tags_unq++;
-          }
+          tags_unq++;
       }
   }
+
+  free(list);
+  list = NULL;
 
   return 1;
 }
