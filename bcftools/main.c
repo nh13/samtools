@@ -163,7 +163,11 @@ int bcf_main_ld(int argc, char *argv[])
 	return 0;
 }
 
+#ifdef SAMTOOLS_MAIN
+int bcftools_main(int argc, char *argv[])
+#else
 int main(int argc, char *argv[])
+#endif
 {
 	if (argc == 1) {
 		fprintf(stderr, "\n");
