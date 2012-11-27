@@ -91,7 +91,11 @@ bam_header_t *bam_header_read(bamFile fp)
 		// with ESPIPE.  Suppress the error message in this case.
 		if (errno != ESPIPE) perror("[bam_header_read] bam_check_EOF");
 	}
+#ifdef _PBGZF_USE
+	else if (i == 0 && 0 != fp->r->compress) fprintf(stderr, "[bam_header_read] EOF marker is absent. The input is probably truncated.\n");
+#else
 	else if (i == 0 && 0 != fp->compress_level) fprintf(stderr, "[bam_header_read] EOF marker is absent. The input is probably truncated.\n");
+#endif
 	// read "BAM1"
 	magic_len = bam_read(fp, buf, 4);
 	if (magic_len != 4 || strncmp(buf, "BAM\001", 4) != 0) {
