@@ -492,6 +492,9 @@ pbgzf_seek(PBGZF* fp, int64_t pos, int where)
   // signal other threads to finish
   pthread_cond_signal(fp->input->not_full);
   pthread_cond_signal(fp->input->not_empty);
+  fp->output->state = QUEUE_STATE_EOF;
+  pthread_cond_broadcast(fp->output->not_full);
+  pthread_cond_broadcast(fp->output->not_empty);
   if(NULL != fp->w) fp->w->is_done = 1;
   if(NULL != fp->c) {
       for(i=0;i<fp->c->n;i++) {
