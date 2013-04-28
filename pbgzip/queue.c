@@ -29,11 +29,7 @@ queue_init(int32_t capacity, int8_t ordered, int32_t num_adders, int32_t num_get
 {
   queue_t *q = calloc(1, sizeof(queue_t));
 
-  if (ordered) {
-    q->mem = capacity*6;
-  } else {
-    q->mem = capacity;
-  }
+  q->mem = capacity*6;
   q->queue = calloc(q->mem, sizeof(block_t*));
   q->ordered = ordered;
 
