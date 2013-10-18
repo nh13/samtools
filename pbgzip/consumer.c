@@ -329,6 +329,7 @@ consumer_run(void *arg)
           }
           else if((NULL == c->reader && QUEUE_STATE_EOF == c->input->state) 
              || (NULL != c->reader && 1 == c->reader->is_done)) { // TODO: does this need to be synced?
+              block_destroy(b);
               break;
           }
           else {
@@ -361,6 +362,7 @@ consumer_run(void *arg)
               exit(1);
           }
           else {
+              block_destroy(b);
               break;
           }
       }
