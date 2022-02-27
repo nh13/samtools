@@ -2021,9 +2021,9 @@ static template_coordinate_key_t* template_coordinate_key(bam1_t *b, sam_hdr_t *
         tmp_pos = key->pos1;
         key->pos1 = key->pos2;
         key->pos2 = tmp_pos;
-        tmp_neg = key->tid1;
-        key->neg1 = key->tid2;
-        key->neg2 = tmp_tid;
+        tmp_neg = key->neg1;
+        key->neg1 = key->neg2;
+        key->neg2 = tmp_neg;
     }
 
     return key;
@@ -2057,7 +2057,7 @@ static inline int bam1_cmp_template_coordinate(const bam1_tag a, const bam1_tag 
     if (0 == retval) retval = strcmp(key_a->mid, key_b->mid); 
     if (0 == retval) retval = strcmp(key_a->name, key_b->name);
     if (0 == retval) retval = strcmp(key_a->library, key_b->library);
-    if (0 == retval) retval = key_a->is_upper_of_pair == key_b->is_upper_of_pair ? 0 : (key_b->is_upper_of_pair ? 1 : -1);
+    if (0 == retval) retval = key_a->is_upper_of_pair == key_b->is_upper_of_pair ? 0 : (key_a->is_upper_of_pair ? 1 : -1);
     return retval < 0 ? -1 : (retval > 0 ? 1 : 0);
 }
 
