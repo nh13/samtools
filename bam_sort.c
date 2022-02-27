@@ -1971,7 +1971,6 @@ static template_coordinate_key_t* template_coordinate_key(bam1_t *b, sam_hdr_t *
     }
     if (b->core.flag & BAM_FPAIRED && !(b->core.flag & BAM_FMUNMAP)) { // mate is mapped, update coordinates
         char *cigar;
-        uint8_t *data;
         if ((data = bam_aux_get(b, "MC"))) {
             if (!(cigar = bam_aux2Z(data))) {
                 fprintf(stderr, "[bam_sort] error: MC tag wrong type. Please use the MC tag provided by samtools fixmate.\n");
@@ -1989,7 +1988,6 @@ static template_coordinate_key_t* template_coordinate_key(bam1_t *b, sam_hdr_t *
     }
         
     if ((data = bam_aux_get(b, "MI"))) {
-        uint8_t *data;
         if (!(key->mid=bam_aux2Z(data))) {
             fprintf(stderr, "[bam_sort] error: MI tag wrong type (not a string).\n");
             free(key);
