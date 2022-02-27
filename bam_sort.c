@@ -2918,7 +2918,7 @@ int bam_sort(int argc, char *argv[])
     size_t max_mem = SORT_DEFAULT_MEGS_PER_THREAD << 20;
     int c, nargs, ret, o_seen = 0, level = -1, no_pg = 0;
     SamOrder sam_order = Coordinate;
-	bool by_query_name = false, by_tag = false;
+	bool by_tag = false;
     int minimiser_kmer = 20;
     char* sort_tag = NULL, *arg_list = NULL;
     char *fnout = "-", modeout[12];
@@ -2937,7 +2937,7 @@ int bam_sort(int argc, char *argv[])
     while ((c = getopt_long(argc, argv, "l:m:no:O:T:@:t:MK:u", lopts, NULL)) >= 0) {
         switch (c) {
         case 'o': fnout = optarg; o_seen = 1; break;
-        case 'n': sam_order = QueryName; by_query_name = true; break;
+        case 'n': sam_order = QueryName; break;
         case 't': by_tag = true; sort_tag = optarg; break;
         case 'm': {
                 char *q;
