@@ -99,9 +99,10 @@ KHASH_MAP_INIT_STR(c2i, int)
 #define hdrln_free_char(p)
 KLIST_INIT(hdrln, char*, hdrln_free_char)
 
-static int g_is_by_qname = 0;
-static int g_is_by_tag = 0;
-static int g_is_by_minhash = 0;
+typedef enum {Coordinate, QueryName, Tag, MinHash} SamOrder;
+static SamOrder g_sam_order = Coordinate;
+//static int g_is_by_qname = 0;
+//static int g_is_by_tag = 0;
 static char g_sort_tag[2] = {0,0};
 
 static int strnum_cmp(const char *_a, const char *_b)
@@ -140,6 +141,25 @@ typedef struct {
 static inline int bam1_cmp_by_tag(const bam1_tag a, const bam1_tag b);
 static inline int bam1_cmp_by_minhash(const bam1_tag a, const bam1_tag b);
 
+
+static inline int heap_lt_coordinate(const heap1_t a, const heap1_t b)
+{
+	if (a.tid != b.tid) return a.tid > b.tid;
+	if (a.pos != b.pos) return a.pos > b.pos;
+	if (a.rev != b.rev) return a.rev > b.rev;
+	return 0;
+}
+
+static inline int heap_lt_queryname(const heap1_t a, const heap1_t b)
+{
+	int t, fa, fb;
+	t = strnum_cmp(bam_get_qname(a.entry.bam_record), bam_get_qname(b.entry.bam_record));
+	if (t != 0) return t > 0;
+	fa = a.entry.bam_record->core.flag & 0xc0;
+	fb = b.entry.bam_record->core.flag & 0xc0;
+	return (fa != fb) ? fa > fb : 0;
+}
+
 // Function to compare reads in the heap and determine which one is < the other
 // Note, unlike the bam1_cmp_by_X functions which return <0, 0, >0 this
 // is strictly 0 or 1 only.
@@ -150,24 +170,24 @@ static inline int heap_lt(const heap1_t a, const heap1_t b)
     if (!b.entry.bam_record)
         return 0;
 
-    if (g_is_by_tag) {
-        int t;
-        t = bam1_cmp_by_tag(a.entry, b.entry);
-        if (t != 0) return t > 0;
-    } else if (g_is_by_minhash) {
-        int t = bam1_cmp_by_minhash(a.entry, b.entry);
-        if (t != 0) return t > 0;
-    } else if (g_is_by_qname) {
-        int t, fa, fb;
-        t = strnum_cmp(bam_get_qname(a.entry.bam_record), bam_get_qname(b.entry.bam_record));
-        if (t != 0) return t > 0;
-        fa = a.entry.bam_record->core.flag & 0xc0;
-        fb = b.entry.bam_record->core.flag & 0xc0;
-        if (fa != fb) return fa > fb;
-    } else {
-        if (a.tid != b.tid) return a.tid > b.tid;
-        if (a.pos != b.pos) return a.pos > b.pos;
-        if (a.rev != b.rev) return a.rev > b.rev;
+	int retval = 0;
+	switch (g_sam_order) {
+		case Coordinate:
+			retval = heap_lt_coordinate(a, b);
+			break;
+		case QueryName:
+			retval = heap_lt_queryname(a, b);
+		case Tag:
+			retval = bam1_cmp_by_tag(a.entry, b.entry);
+			retval = (retval != 0) ? retval > 0 : 0;
+			break;
+		case MinHash:
+			retval = bam1_cmp_by_minhash(a.entry, b.entry);
+			retval = (retval != 0) ? retval > 0 : 0;
+			break;
+		default:
+			print_error("heap_lt", "unknown sort order: %d", g_sam_order);
+			break;
     }
     // This compares by position in the input file(s)
     if (a.i != b.i) return a.i > b.i;
@@ -1035,9 +1055,9 @@ int bam_merge_core2(int by_qname, char* sort_tag, const char *out, const char *m
         }
     }
 
-    g_is_by_qname = by_qname;
-    if (sort_tag) {
-        g_is_by_tag = 1;
+	if (by_qname) g_sam_order = QueryName;
+	else if (sort_tag) {
+		g_sam_order = Tag; 
         g_sort_tag[0] = sort_tag[0];
         g_sort_tag[1] = sort_tag[0] ? sort_tag[1] : '\0';
     }
@@ -1241,7 +1261,7 @@ int bam_merge_core2(int by_qname, char* sort_tag, const char *out, const char *m
             h->pos = (uint64_t)(h->entry.bam_record->core.pos + 1);
             h->rev = bam_is_rev(h->entry.bam_record);
             h->idx = idx++;
-            if (g_is_by_tag) {
+			if (g_sam_order == Tag) {
                 h->entry.u.tag = bam_aux_get(h->entry.bam_record, g_sort_tag);
             } else {
                 h->entry.u.tag = NULL;
@@ -1309,7 +1329,7 @@ int bam_merge_core2(int by_qname, char* sort_tag, const char *out, const char *m
             heap->pos = (uint64_t)(b->core.pos + 1);
             heap->rev = bam_is_rev(b);
             heap->idx = idx++;
-            if (g_is_by_tag) {
+			if (g_sam_order == Tag) {
                 heap->entry.u.tag = bam_aux_get(heap->entry.bam_record, g_sort_tag);
             } else {
                 heap->entry.u.tag = NULL;
@@ -1608,7 +1628,7 @@ static inline int heap_add_read(heap1_t *heap, int nfiles, samFile **fp,
         heap->pos = (uint64_t)(heap->entry.bam_record->core.pos + 1);
         heap->rev = bam_is_rev(heap->entry.bam_record);
         heap->idx = (*idx)++;
-        if (g_is_by_tag) {
+		if (g_sam_order == Tag) {
             heap->entry.u.tag = bam_aux_get(heap->entry.bam_record, g_sort_tag);
         } else {
             heap->entry.u.tag = NULL;
@@ -1637,9 +1657,9 @@ static int bam_merge_simple(int by_qname, char *sort_tag, const char *out,
     int i, heap_size = n + num_in_mem;
     char *out_idx_fn = NULL;
 
-    g_is_by_qname = by_qname;
-    if (sort_tag) {
-        g_is_by_tag = 1;
+	if (by_qname) g_sam_order = QueryName;
+	else if (sort_tag) {
+		g_sam_order = Tag;
         g_sort_tag[0] = sort_tag[0];
         g_sort_tag[1] = sort_tag[0] ? sort_tag[1] : '\0';
     }
@@ -1721,7 +1741,7 @@ static int bam_merge_simple(int by_qname, char *sort_tag, const char *out,
     ks_heapmake(heap, heap_size, heap);
     while (heap->pos != HEAP_EMPTY) {
         bam1_t *b = heap->entry.bam_record;
-        if (g_is_by_minhash && b->core.tid == -1) {
+        if (g_sam_order == MinHash && b->core.tid == -1) {
             // Remove the cached minhash value
             b->core.pos = -1;
             b->core.mpos = -1;
@@ -1792,7 +1812,7 @@ static inline int bam1_cmp_core(const bam1_tag a, const bam1_tag b)
     if (!b.bam_record)
         return 0;
 
-    if (g_is_by_qname) {
+    if (g_sam_order == QueryName) {
         int t = strnum_cmp(bam_get_qname(a.bam_record), bam_get_qname(b.bam_record));
         if (t != 0) return t;
         return (int) (a.bam_record->core.flag&0xc0) - (int) (b.bam_record->core.flag&0xc0);
@@ -1920,12 +1940,16 @@ static inline int bam1_cmp_by_minhash(const bam1_tag a, const bam1_tag b)
 // Handle sort-by-pos, sort-by-name, or sort-by-tag
 static inline int bam1_lt(const bam1_tag a, const bam1_tag b)
 {
-    if (g_is_by_tag) {
-        return bam1_cmp_by_tag(a, b) < 0;
-    } else if (g_is_by_minhash) {
-        return bam1_cmp_by_minhash(a, b) < 0;
-    } else {
-        return bam1_cmp_core(a,b) < 0;
+	switch (g_sam_order) {
+		case Coordinate:
+		case QueryName:
+			return bam1_cmp_core(a,b) < 0;
+		case Tag:
+			return bam1_cmp_by_tag(a, b) < 0;
+		case MinHash:
+			return bam1_cmp_by_minhash(a, b) < 0;
+		default:
+			return bam1_cmp_core(a,b) < 0;
     }
 }
 
@@ -1943,6 +1967,7 @@ typedef struct {
     int error;
     int no_save;
     int large_pos;
+	int minimiser_kmer;
 } worker_t;
 
 // Returns 0 for success
@@ -2246,6 +2271,30 @@ static int reverse_complement(bam1_t *b) {
 }
 //--- End of candidates to punt to htslib
 
+
+static inline void worker_minhash(worker_t *w) {
+	int i;
+	for (i = 0; i < w->buf_len; i++) {
+		bam1_t *b = w->buf[i].bam_record;
+		if (b->core.tid != -1)
+			continue;
+
+		int pos = 0, rev = 0;
+		uint64_t mh = minhash(b, w->minimiser_kmer, &pos, &rev);
+		if (rev)
+			reverse_complement(b);
+
+		// Store 64-bit hash in unmapped pos and mpos fields.
+		// The position of hash is in isize, which we use for
+		// resolving ties when sorting by hash key.
+		// These are unused for completely unmapped data and
+		// will be reset during final output.
+		b->core.pos = mh>>31;
+		b->core.mpos = mh&0x7fffffff;
+		b->core.isize = 65535-pos >=0 ? 65535-pos : 0;
+	}
+}
+
 static void *worker(void *data)
 {
     worker_t *w = (worker_t*)data;
@@ -2254,35 +2303,18 @@ static void *worker(void *data)
     w->error = 0;
     w->tmpfile_name = NULL;
 
-    if (!g_is_by_qname && !g_is_by_tag && !g_is_by_minhash) {
-        if (ks_radixsort(w->buf_len, w->buf, w->h) < 0) {
-            w->error = errno;
-            return NULL;
-        }
-    } else {
-        if (g_is_by_minhash) {
-            int i;
-            for (i = 0; i < w->buf_len; i++) {
-                bam1_t *b = w->buf[i].bam_record;
-                if (b->core.tid != -1)
-                    continue;
-
-                int pos = 0, rev = 0;
-                uint64_t mh = minhash(b, g_is_by_minhash, &pos, &rev);
-                if (rev)
-                    reverse_complement(b);
-
-                // Store 64-bit hash in unmapped pos and mpos fields.
-                // The position of hash is in isize, which we use for
-                // resolving ties when sorting by hash key.
-                // These are unused for completely unmapped data and
-                // will be reset during final output.
-                b->core.pos = mh>>31;
-                b->core.mpos = mh&0x7fffffff;
-                b->core.isize = 65535-pos >=0 ? 65535-pos : 0;
-            }
-        }
-        ks_mergesort(sort, w->buf_len, w->buf, 0);
+	switch (g_sam_order) {
+		case Coordinate:
+			if (ks_radixsort(w->buf_len, w->buf, w->h) < 0) {
+				w->error = errno;
+				return NULL;
+			}
+			break;
+		case MinHash:
+			worker_minhash(w);
+			// no break, go to merge sort
+		default:
+			ks_mergesort(sort, w->buf_len, w->buf, 0);
     }
 
     if (w->no_save)
@@ -2323,7 +2355,7 @@ static void *worker(void *data)
 
 static int sort_blocks(int n_files, size_t k, bam1_tag *buf, const char *prefix,
                        const sam_hdr_t *h, int n_threads, buf_region *in_mem,
-                       int large_pos, char **fns, size_t fns_size)
+                       int large_pos, int minimiser_kmer, char **fns, size_t fns_size)
 {
     int i;
     size_t pos, rest;
@@ -2356,6 +2388,7 @@ static int sort_blocks(int n_files, size_t k, bam1_tag *buf, const char *prefix,
         } else {
             w[i].no_save = 0;
         }
+		w[i].minimiser_kmer = minimiser_kmer;
         pos += w[i].buf_len; rest -= w[i].buf_len;
         pthread_create(&tid[i], &attr, worker, &w[i]);
     }
@@ -2400,6 +2433,7 @@ static int sort_blocks(int n_files, size_t k, bam1_tag *buf, const char *prefix,
   @param  fnout    name of the final output file to be written
   @param  modeout  sam_open() mode to be used to create the final output file
   @param  max_mem  approxiate maximum memory (very inaccurate)
+  @param  by_mimimiser whether to sort by query name; if > 0, then the minimiser kmer size
   @param  in_fmt   input file format options
   @param  out_fmt  output file format and options
   @param  arg_list    command string for PG line
@@ -2430,6 +2464,7 @@ int bam_sort_core_ext(int is_by_qname, char* sort_by_tag, const char *fn, const 
     buf_region *in_mem = NULL;
     int num_in_mem = 0;
     int large_pos = 0;
+	int minimiser_kmer = by_minimiser;
 
     if (!b) {
         print_error("sort", "couldn't allocate memory for bam record");
@@ -2437,10 +2472,10 @@ int bam_sort_core_ext(int is_by_qname, char* sort_by_tag, const char *fn, const 
     }
 
     if (n_threads < 2) n_threads = 1;
-    g_is_by_qname = is_by_qname;
-    g_is_by_minhash = by_minimiser;
-    if (sort_by_tag) {
-        g_is_by_tag = 1;
+	if (is_by_qname) g_sam_order = QueryName;
+	else if (by_minimiser) g_sam_order = MinHash;
+	else if (sort_by_tag) {
+		g_sam_order = Tag;
         g_sort_tag[0] = sort_by_tag[0];
         g_sort_tag[1] = sort_by_tag[0] ? sort_by_tag[1] : '\0';
     }
@@ -2555,7 +2590,7 @@ int bam_sort_core_ext(int is_by_qname, char* sort_by_tag, const char *fn, const 
 
         // Pull out the value of the position
         // or the pointer to the sort tag if applicable
-        if (g_is_by_tag) {
+		if (g_sam_order == Tag) {
             buf[k].u.tag = bam_aux_get(buf[k].bam_record, g_sort_tag);
         } else {
             buf[k].u.tag = NULL;
@@ -2567,7 +2602,7 @@ int bam_sort_core_ext(int is_by_qname, char* sort_by_tag, const char *fn, const 
                            &fns_size, &fns, 0) < 0)
                 goto err;
             int new_n = sort_blocks(n_files, k, buf, prefix, header, n_threads,
-                                    NULL, large_pos, fns, fns_size);
+                                    NULL, large_pos, minimiser_kmer, fns, fns_size);
             if (new_n < 0) {
                 goto err;
             } else {
@@ -2587,7 +2622,7 @@ int bam_sort_core_ext(int is_by_qname, char* sort_by_tag, const char *fn, const 
         in_mem = calloc(n_threads > 0 ? n_threads : 1, sizeof(in_mem[0]));
         if (!in_mem) goto err;
         num_in_mem = sort_blocks(n_files, k, buf, prefix, header, n_threads,
-                                 in_mem, large_pos, fns, fns_size);
+                                 in_mem, large_pos, minimiser_kmer, fns, fns_size);
         if (num_in_mem < 0) goto err;
     } else {
         num_in_mem = 0;
@@ -2595,8 +2630,9 @@ int bam_sort_core_ext(int is_by_qname, char* sort_by_tag, const char *fn, const 
 
     // write the final output
     if (n_files == 0 && num_in_mem < 2) { // a single block
+		int is_by_minhash = g_sam_order == MinHash ? 1 : 0;
         if (write_buffer(fnout, modeout, k, buf, header, n_threads, out_fmt,
-                         g_is_by_minhash, arg_list, no_pg, write_index) != 0) {
+                         is_by_minhash, arg_list, no_pg, write_index) != 0) {
             print_error_errno("sort", "failed to create \"%s\"", fnout);
             goto err;
         }
