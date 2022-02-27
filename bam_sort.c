@@ -1527,6 +1527,10 @@ int bam_merge(int argc, char *argv[])
         }
     }
 
+	if (sort_tag != NULL) {
+		sam_order = sam_order == QueryName ? TagQueryName : TagCoordinate;
+	}
+
     if (fnout == NULL && argc - optind >= 1) {
         fnout = argv[optind];
         optind++;
