@@ -138,7 +138,7 @@ print-version:
 .c.o:
 	$(CC) $(CFLAGS) $(ALL_CPPFLAGS) -c -o $@ $<
 
-LIBST_OBJS = sam_opts.o sam_utils.o bedidx.o
+LIBST_OBJS = sam_opts.o sam_utils.o bedidx.o bam.o
 
 
 samtools: $(AOBJS) $(LZ4OBJS) libst.a $(HTSLIB)

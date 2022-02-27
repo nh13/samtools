@@ -51,16 +51,32 @@ DEALINGS IN THE SOFTWARE.  */
 #include "sam_opts.h"
 #include "samtools.h"
 #include "bedidx.h"
+#include "bam.h"
 
+
+// Struct which contains the sorting key for TemplateCoordinate sort.
+typedef struct {
+	int tid1;
+	int tid2;
+	hts_pos_t pos1;
+	hts_pos_t pos2;
+	bool neg1;
+	bool neg2;
+	const char *library;
+	char *mid;
+	char *name;
+	bool is_upper_of_pair;
+} template_coordinate_key_t;
 
 // Struct which contains the a record, and the pointer to the sort tag (if any) or
 // a combined ref / position / strand.
-// Used to speed up tag and position sorts.
+// Used to speed up sorts (coordinate, by-tag, and template-coordinate).
 typedef struct bam1_tag {
     bam1_t *bam_record;
     union {
         const uint8_t *tag;
         uint8_t pos_tid[12];
+		template_coordinate_key_t *key;
     } u;
 } bam1_tag;
 
@@ -99,10 +115,8 @@ KHASH_MAP_INIT_STR(c2i, int)
 #define hdrln_free_char(p)
 KLIST_INIT(hdrln, char*, hdrln_free_char)
 
-typedef enum {Coordinate, QueryName, Tag, MinHash} SamOrder;
+typedef enum {Coordinate, QueryName, Tag, MinHash, TemplateCoordinate} SamOrder;
 static SamOrder g_sam_order = Coordinate;
-//static int g_is_by_qname = 0;
-//static int g_is_by_tag = 0;
 static char g_sort_tag[2] = {0,0};
 
 static int strnum_cmp(const char *_a, const char *_b)
@@ -140,25 +154,7 @@ typedef struct {
 
 static inline int bam1_cmp_by_tag(const bam1_tag a, const bam1_tag b);
 static inline int bam1_cmp_by_minhash(const bam1_tag a, const bam1_tag b);
-
-
-static inline int heap_lt_coordinate(const heap1_t a, const heap1_t b)
-{
-	if (a.tid != b.tid) return a.tid > b.tid;
-	if (a.pos != b.pos) return a.pos > b.pos;
-	if (a.rev != b.rev) return a.rev > b.rev;
-	return 0;
-}
-
-static inline int heap_lt_queryname(const heap1_t a, const heap1_t b)
-{
-	int t, fa, fb;
-	t = strnum_cmp(bam_get_qname(a.entry.bam_record), bam_get_qname(b.entry.bam_record));
-	if (t != 0) return t > 0;
-	fa = a.entry.bam_record->core.flag & 0xc0;
-	fb = b.entry.bam_record->core.flag & 0xc0;
-	return (fa != fb) ? fa > fb : 0;
-}
+static inline int bam1_cmp_template_coordinate(const bam1_tag a, const bam1_tag b);
 
 // Function to compare reads in the heap and determine which one is < the other
 // Note, unlike the bam1_cmp_by_X functions which return <0, 0, >0 this
@@ -170,25 +166,37 @@ static inline int heap_lt(const heap1_t a, const heap1_t b)
     if (!b.entry.bam_record)
         return 0;
 
-	int retval = 0;
+	int t, fa, fb;
 	switch (g_sam_order) {
 		case Coordinate:
-			retval = heap_lt_coordinate(a, b);
+			if (a.tid != b.tid) return a.tid > b.tid;
+			if (a.pos != b.pos) return a.pos > b.pos;
+			if (a.rev != b.rev) return a.rev > b.rev;
 			break;
 		case QueryName:
-			retval = heap_lt_queryname(a, b);
+			t = strnum_cmp(bam_get_qname(a.entry.bam_record), bam_get_qname(b.entry.bam_record));
+			if (t != 0) return t > 0;
+			fa = a.entry.bam_record->core.flag & 0xc0;
+			fb = b.entry.bam_record->core.flag & 0xc0;
+			if (fa != fb) return fa > fb;
+			break;
 		case Tag:
-			retval = bam1_cmp_by_tag(a.entry, b.entry);
-			retval = (retval != 0) ? retval > 0 : 0;
+			t = bam1_cmp_by_tag(a.entry, b.entry);
+			if (t != 0) return t > 0;
 			break;
 		case MinHash:
-			retval = bam1_cmp_by_minhash(a.entry, b.entry);
-			retval = (retval != 0) ? retval > 0 : 0;
+			t = bam1_cmp_by_minhash(a.entry, b.entry);
+			if (t != 0) return t > 0;
+			break;
+		case TemplateCoordinate:
+			t = bam1_cmp_template_coordinate(a.entry, b.entry);
+			if (t != 0) return t > 0;
 			break;
 		default:
 			print_error("heap_lt", "unknown sort order: %d", g_sam_order);
 			break;
     }
+
     // This compares by position in the input file(s)
     if (a.i != b.i) return a.i > b.i;
     return a.idx > b.idx;
@@ -995,8 +1003,8 @@ static hts_reglist_t *duplicate_reglist(const hts_reglist_t *rl, int rn) {
 
 /*!
   @abstract    Merge multiple sorted BAM.
-  @param  by_qname    whether to sort by query name
-  @param  sort_tag    if non-null, sort by the given tag
+  @param  sam_order   the order in which the data was sorted
+  @param  sort_tag    if non-null, the tag that data was sorted by
   @param  out         output BAM file name
   @param  mode        sam_open() mode to be used to create the final output file
                       (overrides level settings from UNCOMP and LEVEL1 flags)
@@ -1016,7 +1024,7 @@ static hts_reglist_t *duplicate_reglist(const hts_reglist_t *rl, int rn) {
   @discussion Padding information may NOT correctly maintained. This
   function is NOT thread safe.
  */
-int bam_merge_core2(int by_qname, char* sort_tag, const char *out, const char *mode,
+int bam_merge_core2(SamOrder sam_order, char* sort_tag, const char *out, const char *mode,
                     const char *headers, int n, char * const *fn, char * const *fn_idx,
                     const char *fn_bed, int flag, const char *reg, int n_threads,
                     const char *cmd, const htsFormat *in_fmt, const htsFormat *out_fmt,
@@ -1055,9 +1063,8 @@ int bam_merge_core2(int by_qname, char* sort_tag, const char *out, const char *m
         }
     }
 
-	if (by_qname) g_sam_order = QueryName;
-	else if (sort_tag) {
-		g_sam_order = Tag; 
+	g_sam_order = sam_order;
+	if (sam_order == Tag) {
         g_sort_tag[0] = sort_tag[0];
         g_sort_tag[1] = sort_tag[0] ? sort_tag[1] : '\0';
     }
@@ -1126,7 +1133,7 @@ int bam_merge_core2(int by_qname, char* sort_tag, const char *out, const char *m
         hdr[i] = hin;
 
         int order_ok = 1;
-        if ((translation_tbl+i)->lost_coord_sort && !by_qname) {
+        if ((translation_tbl+i)->lost_coord_sort && (sam_order == Coordinate || sam_order == MinHash)) {
             fprintf(stderr, "[bam_merge_core] Order of targets in file %s caused coordinate sort to be lost\n", fn[i]);
             order_ok = 0;
         }
@@ -1415,7 +1422,8 @@ int bam_merge_core(int by_qname, const char *out, const char *headers, int n, ch
     strcpy(mode, "wb");
     if (flag & MERGE_UNCOMP) strcat(mode, "0");
     else if (flag & MERGE_LEVEL1) strcat(mode, "1");
-    return bam_merge_core2(by_qname, NULL, out, mode, headers, n, fn, NULL, NULL, flag, reg, 0, "merge", NULL, NULL, 0, NULL, 1);
+	SamOrder sam_order = by_qname ? QueryName : Coordinate;
+    return bam_merge_core2(sam_order, NULL, out, mode, headers, n, fn, NULL, NULL, flag, reg, 0, "merge", NULL, NULL, 0, NULL, 1);
 }
 
 static void merge_usage(FILE *to)
@@ -1441,25 +1449,28 @@ static void merge_usage(FILE *to)
 "  -b FILE    List of input BAM filenames, one per line [null]\n"
 "  -X         Use customized index files\n"
 "  -L FILE    Specify a BED file for multiple region filtering [null]\n"
-"  --no-PG    do not add a PG line\n");
+"  --no-PG    do not add a PG line\n"
+"  --template-coordinate Input files are sorted by template-coordinate\n");
     sam_global_opt_help(to, "-.O..@..");
 }
 
 int bam_merge(int argc, char *argv[])
 {
-    int c, is_by_qname = 0, flag = 0, ret = 0, level = -1, has_index_file = 0;
+    int c, flag = 0, ret = 0, level = -1, has_index_file = 0;
     char *fn_headers = NULL, *reg = NULL, mode[12];
     char *sort_tag = NULL, *fnout = NULL, *arg_list = NULL;
     long random_seed = (long)time(NULL);
     char** fn = NULL;
     char** fn_idx = NULL, *fn_bed = NULL;
     int fn_size = 0, no_pg = 0;
+	SamOrder sam_order = Coordinate;
 
     sam_global_args ga = SAM_GLOBAL_ARGS_INIT;
     static const struct option lopts[] = {
         SAM_OPT_GLOBAL_OPTIONS('-', 0, 'O', 0, 0, '@'),
         { "threads", required_argument, NULL, '@' },
         {"no-PG", no_argument, NULL, 1},
+		{ "template-coordinate", no_argument, NULL, 2},
         { NULL, 0, NULL, 0 }
     };
 
@@ -1473,7 +1484,7 @@ int bam_merge(int argc, char *argv[])
         case 'r': flag |= MERGE_RG; break;
         case 'f': flag |= MERGE_FORCE; break;
         case 'h': fn_headers = optarg; break;
-        case 'n': is_by_qname = 1; break;
+        case 'n': sam_order = QueryName; break;
         case 'o': fnout = optarg; break;
         case 't': sort_tag = optarg; break;
         case '1': flag |= MERGE_LEVEL1; level = 1; break;
@@ -1508,6 +1519,7 @@ int bam_merge(int argc, char *argv[])
             break;
         }
         case 1: no_pg = 1; break;
+		case 2: sam_order = TemplateCoordinate; break;
         default:  if (parse_sam_global_opt(c, optarg, lopts, &ga) == 0) break;
                   /* else fall-through */
         case '?': merge_usage(stderr); return 1;
@@ -1578,7 +1590,7 @@ int bam_merge(int argc, char *argv[])
     strcpy(mode, "wb");
     sam_open_mode(mode+1, fnout, NULL);
     if (level >= 0) sprintf(strchr(mode, '\0'), "%d", level < 9? level : 9);
-    if (bam_merge_core2(is_by_qname, sort_tag, fnout, mode, fn_headers,
+    if (bam_merge_core2(sam_order, sort_tag, fnout, mode, fn_headers,
                         fn_size+nargcfiles, fn, fn_idx, fn_bed, flag, reg, ga.nthreads,
                         "merge", &ga.in, &ga.out, ga.write_index, arg_list, no_pg) < 0)
         ret = 1;
@@ -1599,6 +1611,8 @@ end:
 /***************
  * BAM sorting *
  ***************/
+
+static template_coordinate_key_t* template_coordinate_key(bam1_t *b, sam_hdr_t *hdr); 
 
 typedef struct {
     size_t from;
@@ -1630,21 +1644,26 @@ static inline int heap_add_read(heap1_t *heap, int nfiles, samFile **fp,
         heap->idx = (*idx)++;
 		if (g_sam_order == Tag) {
             heap->entry.u.tag = bam_aux_get(heap->entry.bam_record, g_sort_tag);
+		} else if (g_sam_order == TemplateCoordinate) {
+			heap->entry.u.key = template_coordinate_key(heap->entry.bam_record, hout);
+			if (heap->entry.u.key == NULL) return -1;
         } else {
             heap->entry.u.tag = NULL;
+            heap->entry.u.key= NULL;
         }
     } else if (res == -1) {
         heap->pos = HEAP_EMPTY;
         if (i < nfiles) bam_destroy1(heap->entry.bam_record);
         heap->entry.bam_record = NULL;
         heap->entry.u.tag = NULL;
+		heap->entry.u.key= NULL;
     } else {
         return -1;
     }
     return 0;
 }
 
-static int bam_merge_simple(int by_qname, char *sort_tag, const char *out,
+static int bam_merge_simple(SamOrder sam_order, char *sort_tag, const char *out,
                             const char *mode, sam_hdr_t *hout,
                             int n, char * const *fn, int num_in_mem,
                             buf_region *in_mem, bam1_tag *buf, int n_threads,
@@ -1657,9 +1676,7 @@ static int bam_merge_simple(int by_qname, char *sort_tag, const char *out,
     int i, heap_size = n + num_in_mem;
     char *out_idx_fn = NULL;
 
-	if (by_qname) g_sam_order = QueryName;
-	else if (sort_tag) {
-		g_sam_order = Tag;
+	if (sam_order == Tag) {
         g_sort_tag[0] = sort_tag[0];
         g_sort_tag[1] = sort_tag[0] ? sort_tag[1] : '\0';
     }
@@ -1695,6 +1712,7 @@ static int bam_merge_simple(int by_qname, char *sort_tag, const char *out,
         // Get a read into the heap
         h->i = i;
         h->entry.u.tag = NULL;
+        h->entry.u.key = NULL;
         if (i < n) {
             h->entry.bam_record = bam_init1();
             if (!h->entry.bam_record) goto mem_fail;
@@ -1807,10 +1825,8 @@ static int bam_merge_simple(int by_qname, char *sort_tag, const char *out,
 static inline int bam1_cmp_core(const bam1_tag a, const bam1_tag b)
 {
     uint64_t pa, pb;
-    if (!a.bam_record)
-        return 1;
-    if (!b.bam_record)
-        return 0;
+    if (!a.bam_record) return 1;
+    if (!b.bam_record) return 0;
 
     if (g_sam_order == QueryName) {
         int t = strnum_cmp(bam_get_qname(a.bam_record), bam_get_qname(b.bam_record));
@@ -1918,8 +1934,7 @@ static inline int bam1_cmp_by_minhash(const bam1_tag a, const bam1_tag b)
     if (!A) return 1;
     if (!B) return 0;
 
-    if (A->core.tid != -1 || B->core.tid != -1)
-        return bam1_cmp_core(a,b);
+    if (A->core.tid != -1 || B->core.tid != -1) return bam1_cmp_core(a,b);
 
     const uint64_t m_a = (((uint64_t)A->core.pos)<<32)|(uint32_t)A->core.mpos;
     const uint64_t m_b = (((uint64_t)B->core.pos)<<32)|(uint32_t)B->core.mpos;
@@ -1936,18 +1951,133 @@ static inline int bam1_cmp_by_minhash(const bam1_tag a, const bam1_tag b)
         return bam1_cmp_core(a,b);
 }
 
+static template_coordinate_key_t* template_coordinate_key(bam1_t *b, sam_hdr_t *hdr) { 
+	uint8_t *data;
+	template_coordinate_key_t *key = (template_coordinate_key_t *)malloc(sizeof(template_coordinate_key_t));
+
+	// defaults
+	key->tid1 = key->tid2 = INT32_MAX;
+	key->pos1 = key->pos2 = HTS_POS_MAX;
+	key->neg1 = key->neg2 = false;
+	key->mid  = "";
+
+	// update values
+	key->library = bam_get_library(hdr, b);
+	key->name = bam_get_qname(b);
+	if (!(b->core.flag & BAM_FUNMAP)) { // read is mapped, update coordinates
+		key->tid1 = b->core.tid;
+		key->neg1 = bam_is_rev(b);
+		key->pos1 = (key->neg1) ? unclipped_end(b) : unclipped_start(b);
+	}
+	if (b->core.flag & BAM_FPAIRED && !(b->core.flag & BAM_FMUNMAP)) { // mate is mapped, update coordinates
+		char *cigar;
+		uint8_t *data;
+		if ((data = bam_aux_get(b, "MC"))) {
+			if (!(cigar = bam_aux2Z(data))) {
+				fprintf(stderr, "[bam_sort] error: MC tag wrong type. Please use the MC tag provided by samtools fixmate.\n");
+				free(key);
+				return NULL;
+			}
+		} else {
+			fprintf(stderr, "[bam_sort] error: no MC tag. Please run samtools fixmate on file first.\n");
+			free(key);
+			return NULL;
+		}
+		key->tid2 = b->core.mtid;
+		key->neg2 = bam_is_mrev(b);
+		key->pos2 = (key->neg2) ? unclipped_other_end(b->core.mpos, cigar) : unclipped_other_start(b->core.mpos, cigar);
+	}
+		
+	if ((data = bam_aux_get(b, "MI"))) {
+		uint8_t *data;
+		if (!(key->mid=bam_aux2Z(data))) {
+			fprintf(stderr, "[bam_sort] error: MI tag wrong type (not a string).\n");
+			free(key);
+			return NULL;
+		}
+		// remove training /1 or /2, for duplex sequencing data
+		int i;
+		for (i = strlen(key->mid) - 1; 0 <= i; --i) {
+			if (key->mid[i] == '/') {
+				key->mid[i] = '\0'; 
+				break;
+			}
+		}
+	}
+
+	// set is_upper_of_pair, and swap if we get the same key regardless of which end
+	// of the pair it is
+	if (key->tid1 < key->tid2
+			|| (key->tid1 == key->tid2 && key->pos1 < key->pos2)
+			|| (key->tid1 == key->tid2 && key->pos1 == key->pos2 && !key->neg1)) {
+		key->is_upper_of_pair = false;
+	} else {
+		key->is_upper_of_pair = true;
+		// swap
+		int tmp_tid;
+		hts_pos_t tmp_pos;
+		bool tmp_neg;
+		tmp_tid = key->tid1;
+		key->tid1 = key->tid2;
+		key->tid2 = tmp_tid;
+		tmp_pos = key->pos1;
+		key->pos1 = key->pos2;
+		key->pos2 = tmp_pos;
+		tmp_neg = key->tid1;
+		key->neg1 = key->tid2;
+		key->neg2 = tmp_tid;
+	}
+
+	return key;
+}
+
+// Function to compare reads and determine which one is < or > the other
+// Handles template-coordinate, which sorts by:
+// 1. the earlier unclipped 5' coordinate of the read pair
+// 2. the higher unclipped 5' coordinate of the read pair
+// 3. library (from read group)
+// 4. the molecular identifier (if present)
+// 5. read name
+// 6. if unpaired, or if R1 has the lower coordinates of the pair
+// Returns a value less than, equal to or greater than zero if a is less than,
+// equal to or greater than b, respectively.
+static inline int bam1_cmp_template_coordinate(const bam1_tag a, const bam1_tag b)
+{
+    if (!a.bam_record) return 1;
+    if (!b.bam_record) return 0;
+
+    const template_coordinate_key_t* key_a = a.u.key;
+    const template_coordinate_key_t* key_b = b.u.key;
+
+	int retval = 0;
+	if (0 == retval) retval = key_a->tid1 - key_b->tid1;
+	if (0 == retval) retval = key_a->tid2 - key_b->tid2; 
+	if (0 == retval) retval = key_a->pos1 < key_b->pos1 ? -1 : (key_a->pos1 > key_b->pos1 ? 1 : 0); 
+	if (0 == retval) retval = key_a->pos2 < key_b->pos2 ? -1 : (key_a->pos2 > key_b->pos2 ? 1 : 0); 
+	if (0 == retval) retval = key_a->neg1 == key_b->neg1 ? 0 : (key_a->neg1 ? -1 : 1);
+	if (0 == retval) retval = key_a->neg2 == key_b->neg2 ? 0 : (key_a->neg2 ? -1 : 1);
+	if (0 == retval) retval = strcmp(key_a->mid, key_b->mid); 
+	if (0 == retval) retval = strcmp(key_a->name, key_b->name);
+	if (0 == retval) retval = strcmp(key_a->library, key_b->library);
+	if (0 == retval) retval = key_a->is_upper_of_pair == key_b->is_upper_of_pair ? 0 : (key_b->is_upper_of_pair ? 1 : -1);
+	return retval < 0 ? -1 : (retval > 0 ? 1 : 0);
+}
+
+
 // Function to compare reads and determine which one is < the other
-// Handle sort-by-pos, sort-by-name, or sort-by-tag
+// Handle sort-by-pos, sort-by-name, sort-by-tag, or sort-by-template-coordinate.
 static inline int bam1_lt(const bam1_tag a, const bam1_tag b)
 {
 	switch (g_sam_order) {
 		case Coordinate:
 		case QueryName:
-			return bam1_cmp_core(a,b) < 0;
+			return bam1_cmp_core(a, b) < 0;
 		case Tag:
 			return bam1_cmp_by_tag(a, b) < 0;
 		case MinHash:
 			return bam1_cmp_by_minhash(a, b) < 0;
+		case TemplateCoordinate: 
+			return bam1_cmp_template_coordinate(a, b) < 0;
 		default:
 			return bam1_cmp_core(a,b) < 0;
     }
@@ -2381,6 +2511,7 @@ static int sort_blocks(int n_files, size_t k, bam1_tag *buf, const char *prefix,
         w[i].index = n_files + i;
         w[i].tmpfile_name = NULL;
         w[i].large_pos = large_pos;
+		w[i].minimiser_kmer = minimiser_kmer;
         if (in_mem) {
             w[i].no_save = 1;
             in_mem[i].from = pos;
@@ -2388,7 +2519,6 @@ static int sort_blocks(int n_files, size_t k, bam1_tag *buf, const char *prefix,
         } else {
             w[i].no_save = 0;
         }
-		w[i].minimiser_kmer = minimiser_kmer;
         pos += w[i].buf_len; rest -= w[i].buf_len;
         pthread_create(&tid[i], &attr, worker, &w[i]);
     }
@@ -2397,7 +2527,7 @@ static int sort_blocks(int n_files, size_t k, bam1_tag *buf, const char *prefix,
         if (!in_mem) {
             assert(w[i].index >= 0 && w[i].index < fns_size);
             fns[w[i].index] = w[i].tmpfile_name;
-        }
+		}
         if (w[i].error != 0) {
             errno = w[i].error;
             print_error_errno("sort", "failed to create temporary file \"%s.%.4d.bam\"", prefix, w[i].index);
@@ -2423,17 +2553,16 @@ static int sort_blocks(int n_files, size_t k, bam1_tag *buf, const char *prefix,
 
 
 /*!
-  @abstract Sort an unsorted BAM file based on the chromosome order
-  and the leftmost position of an alignment
+  @abstract Sort an unsorted BAM file based on the provided sort order
 
-  @param  is_by_qname whether to sort by query name
-  @param  sort_by_tag if non-null, sort by the given tag
+  @param  sam_order the order in which the sort should occur
+  @param  sort_tag  the tag to use if sorting by Tag
+  @param  minimiser_kmer the kmer size when sorting by MinHash
   @param  fn       name of the file to be sorted
   @param  prefix   prefix of the temporary files (prefix.NNNN.bam are written)
   @param  fnout    name of the final output file to be written
   @param  modeout  sam_open() mode to be used to create the final output file
   @param  max_mem  approxiate maximum memory (very inaccurate)
-  @param  by_mimimiser whether to sort by query name; if > 0, then the minimiser kmer size
   @param  in_fmt   input file format options
   @param  out_fmt  output file format and options
   @param  arg_list    command string for PG line
@@ -2445,9 +2574,10 @@ static int sort_blocks(int n_files, size_t k, bam1_tag *buf, const char *prefix,
   and then merge them by calling bam_merge_simple(). This function is
   NOT thread safe.
  */
-int bam_sort_core_ext(int is_by_qname, char* sort_by_tag, const char *fn, const char *prefix,
+int bam_sort_core_ext(SamOrder sam_order, char* sort_tag, int minimiser_kmer, 
+		              const char *fn, const char *prefix,
                       const char *fnout, const char *modeout,
-                      size_t _max_mem, int by_minimiser, int n_threads,
+                      size_t _max_mem, int n_threads,
                       const htsFormat *in_fmt, const htsFormat *out_fmt,
                       char *arg_list, int no_pg, int write_index)
 {
@@ -2460,11 +2590,12 @@ int bam_sort_core_ext(int is_by_qname, char* sort_by_tag, const char *fn, const 
     uint8_t *bam_mem = NULL;
     char **fns = NULL;
     size_t fns_size = 0;
-    const char *new_so;
+    const char *new_so = NULL;
+	const char *new_go = NULL;
+	const char *new_ss = NULL;
     buf_region *in_mem = NULL;
     int num_in_mem = 0;
     int large_pos = 0;
-	int minimiser_kmer = by_minimiser;
 
     if (!b) {
         print_error("sort", "couldn't allocate memory for bam record");
@@ -2472,12 +2603,10 @@ int bam_sort_core_ext(int is_by_qname, char* sort_by_tag, const char *fn, const 
     }
 
     if (n_threads < 2) n_threads = 1;
-	if (is_by_qname) g_sam_order = QueryName;
-	else if (by_minimiser) g_sam_order = MinHash;
-	else if (sort_by_tag) {
-		g_sam_order = Tag;
-        g_sort_tag[0] = sort_by_tag[0];
-        g_sort_tag[1] = sort_by_tag[0] ? sort_by_tag[1] : '\0';
+	g_sam_order = sam_order;
+	if (g_sam_order == Tag) {
+        g_sort_tag[0] = sort_tag[0];
+        g_sort_tag[1] = sort_tag[0] ? sort_tag[1] : '\0';
     }
 
     max_mem = _max_mem * n_threads;
@@ -2515,15 +2644,38 @@ int bam_sort_core_ext(int is_by_qname, char* sort_by_tag, const char *fn, const 
         }
     }
 
-    if (sort_by_tag != NULL)
-        new_so = "unknown";
-    else if (is_by_qname)
-        new_so = "queryname";
-    else
-        new_so = "coordinate";
+	switch (g_sam_order) {
+		case Coordinate:
+			new_so = "coordinate";
+			break;
+		case QueryName:
+			new_so = "queryname";
+			break;
+		case MinHash:
+			new_so = "coordinate";
+			new_ss = "coordinate:minhash";
+			break;
+		case Tag:
+			new_so = "unknown";
+			break;
+		case TemplateCoordinate: 
+			new_so = "unsorted";
+			new_go = "query";
+			new_ss = "unsorted:template-coordinate";
+			break;
+		default:
+			new_so = "unknown";
+			break;
+	}
 
-    if (by_minimiser) {
-        const char *new_ss = "coordinate:minhash";
+	if (new_ss == NULL && new_go == NULL) { // just SO
+        if ((-1 == sam_hdr_update_hd(header, "SO", new_so))
+            && (-1 == sam_hdr_add_line(header, "HD", "VN", SAM_FORMAT_VERSION, "SO", new_so, NULL))
+            ) {
+            print_error("sort", "failed to change sort order header to 'SO:%s'\n", new_so);
+            goto err;
+        }
+	} else if (new_ss != NULL && new_go == NULL) { // update SO and SS, but not GO
         if ((-1 == sam_hdr_update_hd(header, "SO", new_so, "SS", new_ss))
             && (-1 == sam_hdr_add_line(header, "HD", "VN", SAM_FORMAT_VERSION,
                                        "SO", new_so, "SS", new_ss, NULL))
@@ -2532,19 +2684,38 @@ int bam_sort_core_ext(int is_by_qname, char* sort_by_tag, const char *fn, const 
                         new_so, new_ss);
             goto err;
         }
-    } else {
-        if ((-1 == sam_hdr_update_hd(header, "SO", new_so))
-            && (-1 == sam_hdr_add_line(header, "HD", "VN", SAM_FORMAT_VERSION, "SO", new_so, NULL))
+	} else if (new_ss == NULL && new_go != NULL) { // update SO and GO, but not SS
+        if ((-1 == sam_hdr_update_hd(header, "SO", new_so, "GO", new_go))
+            && (-1 == sam_hdr_add_line(header, "HD", "VN", SAM_FORMAT_VERSION,
+                                       "SO", new_so, "GO", new_go, NULL))
             ) {
-            print_error("sort", "failed to change sort order header to 'SO:%s'\n", new_so);
+            print_error("sort", "failed to change sort order header to 'SO:%s GO:%s'\n",
+                        new_so, new_go);
             goto err;
         }
-    }
+	} else { // update SO, GO, and SS
+        if ((-1 == sam_hdr_update_hd(header, "SO", new_so, "GO", new_go, "SS", new_ss))
+            && (-1 == sam_hdr_add_line(header, "HD", "VN", SAM_FORMAT_VERSION,
+                                       "SO", new_so, "GO", new_go, "SS", new_ss, NULL))
+            ) {
+            print_error("sort", "failed to change sort order header to 'SO:%s GO:%s SS:%s'\n",
+                        new_so, new_go, new_ss);
+            goto err;
+        }
+	}
 
-    if (-1 == sam_hdr_remove_tag_hd(header, "GO")) {
-        print_error("sort", "failed to delete group order header\n");
-        goto err;
-    }
+	if (new_go == NULL) {
+		if (-1 == sam_hdr_remove_tag_hd(header, "GO")) {
+			print_error("sort", "failed to delete group order in header\n");
+			goto err;
+		}
+	}
+	if (new_ss == NULL) {
+		if (-1 == sam_hdr_remove_tag_hd(header, "SS")) {
+			print_error("sort", "failed to delete sub sort in header\n");
+			goto err;
+		}
+	}
 
     // No gain to using the thread pool here as the flow of this code
     // is such that we are *either* reading *or* sorting.  Hence a shared
@@ -2588,12 +2759,18 @@ int bam_sort_core_ext(int is_by_qname, char* sort_by_tag, const char *fn, const 
             mem_full = 1;
         }
 
-        // Pull out the value of the position
-        // or the pointer to the sort tag if applicable
-		if (g_sam_order == Tag) {
-            buf[k].u.tag = bam_aux_get(buf[k].bam_record, g_sort_tag);
-        } else {
-            buf[k].u.tag = NULL;
+		// Set the tag if sorting by tag, or the key for template cooridinate sorting
+		switch (g_sam_order) {
+			case Tag:
+				buf[k].u.tag = bam_aux_get(buf[k].bam_record, g_sort_tag);
+				break;
+			case TemplateCoordinate:
+				buf[k].u.key = template_coordinate_key(buf[k].bam_record, header);
+				if (buf[k].u.key == NULL) goto err;
+				break;
+			default:
+				buf[k].u.tag = NULL;
+				buf[k].u.key = NULL;
         }
         ++k;
 
@@ -2630,9 +2807,8 @@ int bam_sort_core_ext(int is_by_qname, char* sort_by_tag, const char *fn, const 
 
     // write the final output
     if (n_files == 0 && num_in_mem < 2) { // a single block
-		int is_by_minhash = g_sam_order == MinHash ? 1 : 0;
         if (write_buffer(fnout, modeout, k, buf, header, n_threads, out_fmt,
-                         is_by_minhash, arg_list, no_pg, write_index) != 0) {
+                         minimiser_kmer, arg_list, no_pg, write_index) != 0) {
             print_error_errno("sort", "failed to create \"%s\"", fnout);
             goto err;
         }
@@ -2648,7 +2824,8 @@ int bam_sort_core_ext(int is_by_qname, char* sort_by_tag, const char *fn, const 
                 abort();
             }
         }
-        if (bam_merge_simple(is_by_qname, sort_by_tag, fnout, modeout, header,
+		char *sort_by_tag = (sam_order == Tag ) ? sort_tag : NULL;
+        if (bam_merge_simple(sam_order, sort_by_tag, fnout, modeout, header,
                              n_files, fns, num_in_mem, in_mem, buf,
                              n_threads, "sort", in_fmt, out_fmt, arg_list,
                              no_pg, write_index) < 0) {
@@ -2672,6 +2849,8 @@ int bam_sort_core_ext(int is_by_qname, char* sort_by_tag, const char *fn, const 
         free(fns);
     }
     bam_destroy1(b);
+	if (sam_order == TemplateCoordinate) {
+	}
     free(buf);
     free(bam_mem);
     free(in_mem);
@@ -2687,7 +2866,9 @@ int bam_sort_core(int is_by_qname, const char *fn, const char *prefix, size_t ma
     char *fnout = calloc(strlen(prefix) + 4 + 1, 1);
     if (!fnout) return -1;
     sprintf(fnout, "%s.bam", prefix);
-    ret = bam_sort_core_ext(is_by_qname, NULL, fn, prefix, fnout, "wb", max_mem, 0, 0, NULL, NULL, NULL, 1, 0);
+	SamOrder sam_order = is_by_qname ? QueryName : Coordinate;
+	g_sam_order = sam_order;
+    ret = bam_sort_core_ext(sam_order, NULL, 0, fn, prefix, fnout, "wb", max_mem, 0, NULL, NULL, NULL, 1, 0);
     free(fnout);
     return ret;
 }
@@ -2706,7 +2887,10 @@ static void sort_usage(FILE *fp)
 "  -t TAG     Sort by value of TAG. Uses position as secondary index (or read name if -n is set)\n"
 "  -o FILE    Write final output to FILE rather than standard output\n"
 "  -T PREFIX  Write temporary files to PREFIX.nnnn.bam\n"
-"  --no-PG    do not add a PG line\n");
+"      --no-PG\n"
+"               Do not add a PG line\n"
+"      --template-coordinate\n"
+"               Sort by template-coordinate\n");
     sam_global_opt_help(fp, "-.O..@..");
 }
 
@@ -2730,8 +2914,9 @@ static void complain_about_memory_setting(size_t max_mem) {
 int bam_sort(int argc, char *argv[])
 {
     size_t max_mem = SORT_DEFAULT_MEGS_PER_THREAD << 20;
-    int c, nargs, is_by_qname = 0, ret, o_seen = 0, level = -1, no_pg = 0;
-    int by_minimiser = 0, minimiser_kmer = 20;
+    int c, nargs, ret, o_seen = 0, level = -1, no_pg = 0;
+	SamOrder sam_order = Coordinate;
+    int minimiser_kmer = 20;
     char* sort_tag = NULL, *arg_list = NULL;
     char *fnout = "-", modeout[12];
     kstring_t tmpprefix = { 0, 0, NULL };
@@ -2742,13 +2927,14 @@ int bam_sort(int argc, char *argv[])
         SAM_OPT_GLOBAL_OPTIONS('-', 0, 'O', 0, 0, '@'),
         { "threads", required_argument, NULL, '@' },
         {"no-PG", no_argument, NULL, 1},
+		{ "template-coordinate", no_argument, NULL, 2},
         { NULL, 0, NULL, 0 }
     };
 
     while ((c = getopt_long(argc, argv, "l:m:no:O:T:@:t:MK:u", lopts, NULL)) >= 0) {
         switch (c) {
         case 'o': fnout = optarg; o_seen = 1; break;
-        case 'n': is_by_qname = 1; break;
+        case 'n': sam_order = QueryName; break;
         case 't': sort_tag = optarg; break;
         case 'm': {
                 char *q;
@@ -2762,7 +2948,8 @@ int bam_sort(int argc, char *argv[])
         case 'l': level = atoi(optarg); break;
         case 'u': level = 0; break;
         case   1: no_pg = 1; break;
-        case 'M': by_minimiser = 1; break;
+        case   2: sam_order = TemplateCoordinate; break;
+        case 'M': sam_order = MinHash; break;
         case 'K':
             minimiser_kmer = atoi(optarg);
             if (minimiser_kmer < 1)
@@ -2793,7 +2980,7 @@ int bam_sort(int argc, char *argv[])
         goto sort_end;
     }
 
-    if (ga.write_index && (is_by_qname || sort_tag)) {
+    if (ga.write_index && (sam_order == QueryName || sam_order == Tag || sam_order == TemplateCoordinate)) {
         fprintf(stderr, "[W::bam_sort] Ignoring --write-index as it only works for position sorted files.\n");
         ga.write_index = 0;
     }
@@ -2828,9 +3015,9 @@ int bam_sort(int argc, char *argv[])
         ksprintf(&tmpprefix, "samtools.%d.%u.tmp", (int) getpid(), t % 10000);
     }
 
-    ret = bam_sort_core_ext(is_by_qname, sort_tag, (nargs > 0)? argv[optind] : "-",
-                            tmpprefix.s, fnout, modeout, max_mem,
-                            by_minimiser * minimiser_kmer, ga.nthreads,
+    ret = bam_sort_core_ext(sam_order, sort_tag, (sam_order == MinHash) ? minimiser_kmer : 0, 
+							(nargs > 0) ? argv[optind] : "-",
+                            tmpprefix.s, fnout, modeout, max_mem, ga.nthreads,
                             &ga.in, &ga.out, arg_list, no_pg, ga.write_index);
     if (ret >= 0)
         ret = EXIT_SUCCESS;
