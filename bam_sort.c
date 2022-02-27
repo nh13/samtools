@@ -2822,7 +2822,7 @@ int bam_sort_core_ext(SamOrder sam_order, char* sort_tag, int minimiser_kmer,
                 abort();
             }
         }
-        char *sort_by_tag = (sam_order == Tag ) ? sort_tag : NULL;
+        char *sort_by_tag = (sam_order == Tag) ? sort_tag : NULL;
         if (bam_merge_simple(sam_order, sort_by_tag, fnout, modeout, header,
                              n_files, fns, num_in_mem, in_mem, buf,
                              n_threads, "sort", in_fmt, out_fmt, arg_list,
@@ -2933,7 +2933,7 @@ int bam_sort(int argc, char *argv[])
         switch (c) {
         case 'o': fnout = optarg; o_seen = 1; break;
         case 'n': sam_order = QueryName; break;
-        case 't': sort_tag = optarg; break;
+        case 't': sam_order = Tag; sort_tag = optarg; break;
         case 'm': {
                 char *q;
                 max_mem = strtol(optarg, &q, 0);
