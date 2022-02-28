@@ -68,6 +68,59 @@ typedef struct {
     bool is_upper_of_pair;
 } template_coordinate_key_t;
 
+// Struct to store fixed buffers of template coordinate keys
+typedef struct {
+  size_t n; // the # of buffers stored
+  size_t m; // the # of buffers allocated
+  size_t buffer_size; // # the fixed size of each buffer
+  template_coordinate_key_t **buffers; // the list of buffers
+} template_coordinate_keys_t;
+
+// Gets the idx'th key; does not OOB checking
+static template_coordinate_key_t* template_coordinate_keys_get(template_coordinate_keys_t *keys, size_t idx) {
+    size_t buffer_idx = idx / keys->buffer_size; // the index of the buffer to retrieve in buffer
+    size_t buffer_offset = idx % keys->buffer_size; // the offset into the given buffer to retrieve
+    return &keys->buffers[buffer_idx][buffer_offset];
+
+
+}
+
+// Rellocates the buffers to hold at least max_k entries
+static int template_coordinate_keys_realloc(template_coordinate_keys_t *keys, int max_k) {
+    template_coordinate_key_t **new_buffers = NULL;
+    size_t new_m = 1 + (max_k / keys->buffer_size); // new # of buffers needed
+    assert(new_m * keys->buffer_size >= max_k);
+    if ((new_buffers = malloc(new_m * sizeof(template_coordinate_key_t*))) == NULL) {
+        print_error("sort", "couldn't allocate memory for template coordinate key buffers");
+        return -1;
+    }
+    // copy over existing buffers
+    int j;
+    for (j = 0; j < keys->n; ++j) {
+        new_buffers[j] = keys->buffers[j];
+    }
+    // allocate space for new buffers
+    for (; j < new_m; ++j) {
+        template_coordinate_key_t *new_buffer = NULL;
+        if ((new_buffer = malloc(sizeof(template_coordinate_key_t) * keys->buffer_size)) == NULL) {
+            print_error("sort", "couldn't allocate memory for template coordinate key buffer");
+            // free new_buffer and already allocated buffers
+            for (; keys->n <= j; --j) {
+                free(new_buffers[j]);
+            }
+            free(new_buffers);
+            return -1;
+        }
+        new_buffers[j] = new_buffer;
+    }
+    // free existing list of buffers and copy over new one
+    free(keys->buffers);
+    keys->buffers = new_buffers;
+    keys->m = new_m;
+    return 0;
+}
+
+
 // Struct which contains the a record, and the pointer to the sort tag (if any) or
 // a combined ref / position / strand.
 // Used to speed up sorts (coordinate, by-tag, and template-coordinate).
@@ -1630,7 +1683,7 @@ typedef struct {
 
 static inline int heap_add_read(heap1_t *heap, int nfiles, samFile **fp,
                                 int num_in_mem, buf_region *in_mem,
-                                bam1_tag *buf, template_coordinate_key_t *keys,
+                                bam1_tag *buf, template_coordinate_keys_t *keys,
                                 uint64_t *idx, sam_hdr_t *hout) {
     int i = heap->i, res;
     if (i < nfiles) { // read from file
@@ -1639,7 +1692,7 @@ static inline int heap_add_read(heap1_t *heap, int nfiles, samFile **fp,
         if (in_mem[i - nfiles].from < in_mem[i - nfiles].to) {
             size_t from = in_mem[i - nfiles].from;
             heap->entry.bam_record = buf[from].bam_record;
-            if (g_sam_order == TemplateCoordinate) heap->entry.u.key = &keys[from];
+            if (g_sam_order == TemplateCoordinate) heap->entry.u.key = template_coordinate_keys_get(keys, from);
             in_mem[i - nfiles].from++;
             res = 0;
         } else {
@@ -1672,7 +1725,7 @@ static inline int heap_add_read(heap1_t *heap, int nfiles, samFile **fp,
 static int bam_merge_simple(SamOrder sam_order, char *sort_tag, const char *out,
                             const char *mode, sam_hdr_t *hout,
                             int n, char * const *fn, int num_in_mem,
-                            buf_region *in_mem, bam1_tag *buf, template_coordinate_key_t *keys, int n_threads,
+                            buf_region *in_mem, bam1_tag *buf, template_coordinate_keys_t *keys, int n_threads,
                             const char *cmd, const htsFormat *in_fmt,
                             const htsFormat *out_fmt, char *arg_list, int no_pg,
                             int write_index) {
@@ -2588,7 +2641,7 @@ int bam_sort_core_ext(SamOrder sam_order, char* sort_tag, int minimiser_kmer,
     sam_hdr_t *header = NULL;
     samFile *fp;
     bam1_tag *buf = NULL;
-    template_coordinate_key_t *keys = NULL; // matches the length of `buf`, when sam_order is `TemplateCoordinate`
+    template_coordinate_keys_t *keys = NULL;
     bam1_t *b = bam_init1();
     uint8_t *bam_mem = NULL;
     char **fns = NULL;
@@ -2611,10 +2664,20 @@ int bam_sort_core_ext(SamOrder sam_order, char* sort_tag, int minimiser_kmer,
         g_sort_tag[0] = sort_tag[0];
         g_sort_tag[1] = sort_tag[0] ? sort_tag[1] : '\0';
     }
+            
+    if (sam_order == TemplateCoordinate) {
+        if ((keys = malloc(sizeof(template_coordinate_keys_t))) == NULL) {
+            print_error("sort", "could not allocate memory for the top-level keys");
+            goto err;
+        }
+        keys->n = 0;
+        keys->m = 0;
+        keys->buffer_size = 0x10000;
+        keys->buffers = NULL;
+    }
 
     max_mem = _max_mem * n_threads;
     buf = NULL;
-    keys = NULL;
     fp = sam_open_format(fn, "r", in_fmt);
     if (fp == NULL) {
         print_error_errno("sort", "can't open \"%s\"", fn);
@@ -2740,7 +2803,6 @@ int bam_sort_core_ext(SamOrder sam_order, char* sort_tag, int minimiser_kmer,
 
         if (k == max_k) {
             bam1_tag *new_buf;
-            template_coordinate_key_t *new_keys;
             max_k = max_k? max_k<<1 : 0x10000;
             if ((new_buf = realloc(buf, max_k * sizeof(bam1_tag))) == NULL) {
                 print_error("sort", "couldn't allocate memory for buf");
@@ -2748,11 +2810,9 @@ int bam_sort_core_ext(SamOrder sam_order, char* sort_tag, int minimiser_kmer,
             }
             buf = new_buf;
             if (sam_order == TemplateCoordinate) {
-                if ((new_keys = realloc(keys, max_k * sizeof(template_coordinate_key_t))) == NULL) {
-                    print_error("sort", "couldn't allocate memory for template coordinate keys");
+                if (template_coordinate_keys_realloc(keys, max_k) == -1) {
                     goto err;
                 }
-                keys = new_keys;
             }
         }
 
@@ -2779,7 +2839,7 @@ int bam_sort_core_ext(SamOrder sam_order, char* sort_tag, int minimiser_kmer,
                 buf[k].u.tag = bam_aux_get(buf[k].bam_record, g_sort_tag);
                 break;
             case TemplateCoordinate:
-                buf[k].u.key = template_coordinate_key(buf[k].bam_record, &keys[k], header);
+                buf[k].u.key = template_coordinate_key(buf[k].bam_record, template_coordinate_keys_get(keys, k), header);
                 if (buf[k].u.key == NULL) goto err;
                 break;
             default:
@@ -2864,7 +2924,13 @@ int bam_sort_core_ext(SamOrder sam_order, char* sort_tag, int minimiser_kmer,
     }
     bam_destroy1(b);
     free(buf);
-    free(keys);
+    if (keys != NULL) {
+        for (i = 0; i < keys->m; ++i) {
+            free(keys->buffers[i]);
+        }
+        free(keys->buffers);
+        free(keys);
+    }
     free(bam_mem);
     free(in_mem);
     sam_hdr_destroy(header);
