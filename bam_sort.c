@@ -2664,7 +2664,7 @@ int bam_sort_core_ext(SamOrder sam_order, char* sort_tag, int minimiser_kmer,
         g_sort_tag[0] = sort_tag[0];
         g_sort_tag[1] = sort_tag[0] ? sort_tag[1] : '\0';
     }
-            
+
     if (sam_order == TemplateCoordinate) {
         if ((keys = malloc(sizeof(template_coordinate_keys_t))) == NULL) {
             print_error("sort", "could not allocate memory for the top-level keys");
