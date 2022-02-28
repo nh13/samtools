@@ -2847,6 +2847,7 @@ int bam_sort_core_ext(SamOrder sam_order, char* sort_tag, int minimiser_kmer,
                 buf[k].u.key = NULL;
         }
         ++k;
+        if (keys != NULL) ++keys->n;
 
         if (mem_full) {
             if (hts_resize(char *, n_files + (n_threads > 0 ? n_threads : 1),
@@ -2860,6 +2861,7 @@ int bam_sort_core_ext(SamOrder sam_order, char* sort_tag, int minimiser_kmer,
                 n_files = new_n;
             }
             k = 0;
+            if (keys != NULL) keys->n = 0;
             bam_mem_offset = 0;
         }
     }
