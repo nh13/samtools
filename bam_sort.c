@@ -1630,17 +1630,17 @@ typedef struct {
 
 static inline int heap_add_read(heap1_t *heap, int nfiles, samFile **fp,
                                 int num_in_mem, buf_region *in_mem,
-                                bam1_tag *buf, template_coordinate_key_t *keys, 
-								uint64_t *idx, sam_hdr_t *hout) {
+                                bam1_tag *buf, template_coordinate_key_t *keys,
+                                uint64_t *idx, sam_hdr_t *hout) {
     int i = heap->i, res;
     if (i < nfiles) { // read from file
         res = sam_read1(fp[i], hout, heap->entry.bam_record);
     } else { // read from memory
         if (in_mem[i - nfiles].from < in_mem[i - nfiles].to) {
-			size_t from = in_mem[i - nfiles].from;
+            size_t from = in_mem[i - nfiles].from;
             heap->entry.bam_record = buf[from].bam_record;
-			if (g_sam_order == TemplateCoordinate) heap->entry.u.key = &keys[from];
-			in_mem[i - nfiles].from++;
+            if (g_sam_order == TemplateCoordinate) heap->entry.u.key = &keys[from];
+            in_mem[i - nfiles].from++;
             res = 0;
         } else {
             res = -1;
@@ -1655,14 +1655,14 @@ static inline int heap_add_read(heap1_t *heap, int nfiles, samFile **fp,
             heap->entry.u.tag = bam_aux_get(heap->entry.bam_record, g_sort_tag);
         } else if (g_sam_order != TemplateCoordinate) {
             heap->entry.u.tag = NULL;
-            heap->entry.u.key= NULL;
+            heap->entry.u.key = NULL;
         }
     } else if (res == -1) {
         heap->pos = HEAP_EMPTY;
         if (i < nfiles) bam_destroy1(heap->entry.bam_record);
         heap->entry.bam_record = NULL;
         heap->entry.u.tag = NULL;
-        heap->entry.u.key= NULL;
+        heap->entry.u.key = NULL;
     } else {
         return -1;
     }
@@ -1968,6 +1968,7 @@ static template_coordinate_key_t* template_coordinate_key(bam1_t *b, template_co
 
     // update values
     key->library = bam_get_library(hdr, b);
+    if (key->library == NULL) key->library = "";
     key->name = bam_get_qname(b);
     if (!(b->core.flag & BAM_FUNMAP)) { // read is mapped, update coordinates
         key->tid1 = b->core.tid;
@@ -2587,7 +2588,7 @@ int bam_sort_core_ext(SamOrder sam_order, char* sort_tag, int minimiser_kmer,
     sam_hdr_t *header = NULL;
     samFile *fp;
     bam1_tag *buf = NULL;
-	template_coordinate_key_t *keys = NULL; // matches the length of `buf`, when sam_order is `TemplateCoordinate`
+    template_coordinate_key_t *keys = NULL; // matches the length of `buf`, when sam_order is `TemplateCoordinate`
     bam1_t *b = bam_init1();
     uint8_t *bam_mem = NULL;
     char **fns = NULL;
@@ -2613,7 +2614,7 @@ int bam_sort_core_ext(SamOrder sam_order, char* sort_tag, int minimiser_kmer,
 
     max_mem = _max_mem * n_threads;
     buf = NULL;
-	keys = NULL;
+    keys = NULL;
     fp = sam_open_format(fn, "r", in_fmt);
     if (fp == NULL) {
         print_error_errno("sort", "can't open \"%s\"", fn);
@@ -2739,20 +2740,20 @@ int bam_sort_core_ext(SamOrder sam_order, char* sort_tag, int minimiser_kmer,
 
         if (k == max_k) {
             bam1_tag *new_buf;
-			template_coordinate_key_t *new_keys;
+            template_coordinate_key_t *new_keys;
             max_k = max_k? max_k<<1 : 0x10000;
             if ((new_buf = realloc(buf, max_k * sizeof(bam1_tag))) == NULL) {
                 print_error("sort", "couldn't allocate memory for buf");
                 goto err;
             }
             buf = new_buf;
-			if (sam_order == TemplateCoordinate) {
-				if ((new_keys = realloc(keys, max_k * sizeof(template_coordinate_key_t))) == NULL) {
-					print_error("sort", "couldn't allocate memory for template coordinate keys");
-					goto err;
-				}
-				keys = new_keys;
-			}
+            if (sam_order == TemplateCoordinate) {
+                if ((new_keys = realloc(keys, max_k * sizeof(template_coordinate_key_t))) == NULL) {
+                    print_error("sort", "couldn't allocate memory for template coordinate keys");
+                    goto err;
+                }
+                keys = new_keys;
+            }
         }
 
         // Check if the BAM record will fit in the memory limit
@@ -2863,7 +2864,7 @@ int bam_sort_core_ext(SamOrder sam_order, char* sort_tag, int minimiser_kmer,
     }
     bam_destroy1(b);
     free(buf);
-	free(keys);
+    free(keys);
     free(bam_mem);
     free(in_mem);
     sam_hdr_destroy(header);
