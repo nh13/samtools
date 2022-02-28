@@ -2639,7 +2639,7 @@ int bam_sort_core_ext(SamOrder sam_order, char* sort_tag, int minimiser_kmer,
     int ret = -1, res, i, nref, n_files = 0;
     size_t max_k, k, max_mem, bam_mem_offset;
     sam_hdr_t *header = NULL;
-    samFile *fp;
+    samFile *fp = NULL;
     bam1_tag *buf = NULL;
     template_coordinate_keys_t *keys = NULL;
     bam1_t *b = bam_init1();
