@@ -2005,7 +2005,7 @@ static inline int bam1_cmp_by_minhash(const bam1_tag a, const bam1_tag b)
         return bam1_cmp_core(a,b);
 }
 
-// compares to molecular identifiers, ignoring any trailing /1 and /2
+// compares to molecular identifiers, ignoring any trailing slash and subsequent single-character
 // * if mid1 is shorter than mid2, then -1 will be returned
 // * if mid1 is longer than mid2, then 1 will be returned
 static inline int template_coordinate_key_compare_mid(const char* mid1, const char* mid2) {
@@ -2019,13 +2019,9 @@ static inline int template_coordinate_key_compare_mid(const char* mid1, const ch
     if (len1 < len2) return -1;
     else if (len1 > len2) return 1;
 
-    // trim trailing \1 or \2
-    if (len1 >= 2 && mid1[len1-2] == '\\' && (mid1[len1-1] == '1' || mid1[len1] == '2')) {
-        len1 -= 2;
-    }
-    if (len2 >= 2 && mid2[len2-2] == '\\' && (mid2[len2-1] == '1' || mid2[len2] == '2')) {
-        len2 -= 2;
-    }
+    // trim trailing slash and character
+    if (len1 >= 2 && mid1[len1-2] == '\\') len1 -= 2;
+    if (len2 >= 2 && mid2[len2-2] == '\\') len2 -= 2;
 
     // find first mismatching character
     while (mid1[i] != '\0' && mid2[i] != '\0' && mid1[i] != mid2[i]) {
