@@ -88,7 +88,7 @@ static template_coordinate_key_t* template_coordinate_keys_get(template_coordina
 // Rellocates the buffers to hold at least max_k entries
 static int template_coordinate_keys_realloc(template_coordinate_keys_t *keys, int max_k) {
     size_t cur_m = keys->m;
-    keys->m = keys->m ? (keys->m << 1) : 0x10000; // double it
+    keys->m += 0x100;
     //assert(keys->m > cur_m);
     //assert(keys->m * keys->buffer_size >= max_k);
     if ((keys->buffers = realloc(keys->buffers, keys->m * sizeof(template_coordinate_key_t*))) == NULL) {
