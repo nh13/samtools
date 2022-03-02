@@ -2027,7 +2027,7 @@ static inline int template_coordinate_key_compare_mid(const char* mid1, const ch
         len2 -= 2;
     }
 
-    // find first mismatching character 
+    // find first mismatching character
     while (mid1[i] != '\0' && mid2[i] != '\0' && mid1[i] != mid2[i]) {
         i += 1;
     }
@@ -2865,7 +2865,7 @@ int bam_sort_core_ext(SamOrder sam_order, char* sort_tag, int minimiser_kmer,
                 buf[k].u.tag = bam_aux_get(buf[k].bam_record, g_sort_tag);
                 break;
             case TemplateCoordinate:
-                ++keys->n; 
+                ++keys->n;
                 template_coordinate_key_t *key = template_coordinate_keys_get(keys, k);
                 buf[k].u.key = template_coordinate_key(buf[k].bam_record, key, header);
                 if (buf[k].u.key == NULL) goto err;
