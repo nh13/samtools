@@ -2080,6 +2080,12 @@ static template_coordinate_key_t* template_coordinate_key(bam1_t *b, template_co
             return NULL;
         }
     }
+    else if ((data = bam_aux_get(b, "RX"))) {
+        if (!(key->mid=bam_aux2Z(data))) {
+            fprintf(stderr, "[bam_sort] error: RXtag wrong type (not a string).\n");
+            return NULL;
+        }
+    }
 
     // set is_upper_of_pair, and swap if we get the same key regardless of which end
     // of the pair it is
