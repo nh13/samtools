@@ -1675,12 +1675,12 @@ static inline int heap_add_read(heap1_t *heap, int nfiles, samFile **fp,
     if (i < nfiles) { // read from file
         res = sam_read1(fp[i], hout, heap->entry.bam_record);
         if (res >= 0 && g_sam_order == TemplateCoordinate) { // file read OK and TemplateCoordinate order
-            if (keys->n >= keys->m * keys->buffer_size) res = template_coordinate_keys_realloc(keys, keys->n + 1); // need more memory
+            size_t from = keys->n + i;
+            if (from >= keys->m * keys->buffer_size) res = template_coordinate_keys_realloc(keys, from + 1); // need more memory
             if (res >= 0) {
-                template_coordinate_key_t *key = template_coordinate_keys_get(keys, keys->n); // get the next key to use
+                template_coordinate_key_t *key = template_coordinate_keys_get(keys, from); // get the next key to use
                 heap->entry.u.key = template_coordinate_key(heap->entry.bam_record, key, hout); // update the key
                 if (heap->entry.u.key == NULL) res = -1; // key could not be created, error out
-                else keys->n++; // key created OK, increment the number of keys
             }
         }
     } else { // read from memory
@@ -2015,16 +2015,16 @@ static inline int template_coordinate_key_compare_mid(const char* mid1, const ch
     int len1 = strlen(mid1);
     int len2 = strlen(mid2);
 
+    // trim trailing slash and character
+    if (len1 >= 2 && mid1[len1-2] == '/') len1 -= 2;
+    if (len2 >= 2 && mid2[len2-2] == '/') len2 -= 2;
+    
     // shortcut: if the lengths differ, the shorter one is less than
     if (len1 < len2) return -1;
     else if (len1 > len2) return 1;
 
-    // trim trailing slash and character
-    if (len1 >= 2 && mid1[len1-2] == '\\') len1 -= 2;
-    if (len2 >= 2 && mid2[len2-2] == '\\') len2 -= 2;
-
     // find first mismatching character
-    while (mid1[i] != '\0' && mid2[i] != '\0' && mid1[i] != mid2[i]) {
+    while (i < len1 && mid1[i] != mid2[i]) {
         i += 1;
     }
 
